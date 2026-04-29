@@ -8,6 +8,7 @@ import (
 	"firemail/internal/database"
 	"firemail/internal/handlers"
 	"firemail/internal/middleware"
+	"firemail/internal/security"
 	"firemail/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -29,6 +30,20 @@ func main() {
 
 	// 初始化配置
 	cfg := config.Load()
+
+	encryptionStatus, err := security.ConfigureFieldEncryption(security.EncryptionConfig{
+		EncryptionKey: cfg.Encryption.Key,
+		JWTSecret:     cfg.Auth.JWTSecret,
+		Environment:   cfg.Server.Env,
+	})
+	if err != nil {
+		log.Fatalf("Failed to configure database field encryption: %v", err)
+	}
+	log.Printf("Database field encryption configured with source: %s", encryptionStatus.Source)
+	log.Println("IMPORTANT: Save the database encryption root secret. Losing JWT_SECRET or ENCRYPTION_KEY will make encrypted email account credentials unrecoverable.")
+	if encryptionStatus.WeakKey {
+		log.Println("WARNING: JWT_SECRET is using a default or weak value. Change it and save it before relying on encrypted production data.")
+	}
 
 	// 初始化数据库
 	db, err := database.Initialize(cfg.Database.Path)

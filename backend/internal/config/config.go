@@ -9,13 +9,14 @@ import (
 
 // Config 应用配置结构
 type Config struct {
-	Server   ServerConfig   `json:"server"`
-	Database DatabaseConfig `json:"database"`
-	Auth     AuthConfig     `json:"auth"`
-	OAuth    OAuthConfig    `json:"oauth"`
-	CORS     CORSConfig     `json:"cors"`
-	Logging  LoggingConfig  `json:"logging"`
-	SSE      SSEConfig      `json:"sse"`
+	Server     ServerConfig     `json:"server"`
+	Database   DatabaseConfig   `json:"database"`
+	Auth       AuthConfig       `json:"auth"`
+	OAuth      OAuthConfig      `json:"oauth"`
+	CORS       CORSConfig       `json:"cors"`
+	Logging    LoggingConfig    `json:"logging"`
+	SSE        SSEConfig        `json:"sse"`
+	Encryption EncryptionConfig `json:"encryption"`
 }
 
 // ServerConfig 服务器配置
@@ -27,10 +28,10 @@ type ServerConfig struct {
 
 // DatabaseConfig 数据库配置
 type DatabaseConfig struct {
-	Path               string `json:"path"`
-	BackupDir          string `json:"backup_dir"`
-	BackupMaxCount     int    `json:"backup_max_count"`
-	BackupIntervalHours int   `json:"backup_interval_hours"`
+	Path                string `json:"path"`
+	BackupDir           string `json:"backup_dir"`
+	BackupMaxCount      int    `json:"backup_max_count"`
+	BackupIntervalHours int    `json:"backup_interval_hours"`
 }
 
 // AuthConfig 认证配置
@@ -41,11 +42,17 @@ type AuthConfig struct {
 	JWTExpiry     time.Duration `json:"jwt_expiry"`
 }
 
+// EncryptionConfig 数据库字段加密配置。
+// 默认从 JWT_SECRET 派生加密 key，ENCRYPTION_KEY 可用于显式分离数据库加密根密钥。
+type EncryptionConfig struct {
+	Key string `json:"key"`
+}
+
 // OAuthConfig OAuth2配置
 type OAuthConfig struct {
-	Gmail           OAuthProviderConfig `json:"gmail"`
-	Outlook         OAuthProviderConfig `json:"outlook"`
-	ExternalServer  ExternalOAuthConfig `json:"external_server"`
+	Gmail          OAuthProviderConfig `json:"gmail"`
+	Outlook        OAuthProviderConfig `json:"outlook"`
+	ExternalServer ExternalOAuthConfig `json:"external_server"`
 }
 
 // ExternalOAuthConfig 外部OAuth服务器配置
@@ -81,8 +88,6 @@ type SSEConfig struct {
 	BufferSize            int           `json:"buffer_size"`
 	EnableHeartbeat       bool          `json:"enable_heartbeat"`
 }
-
-
 
 // Load 加载配置
 func Load() *Config {
@@ -134,6 +139,9 @@ func Load() *Config {
 			CleanupInterval:       parseDuration(getEnv("SSE_CLEANUP_INTERVAL", "5m")),
 			BufferSize:            parseInt(getEnv("SSE_BUFFER_SIZE", "1024"), 1024),
 			EnableHeartbeat:       parseBool(getEnv("SSE_ENABLE_HEARTBEAT", "true")),
+		},
+		Encryption: EncryptionConfig{
+			Key: getEnv("ENCRYPTION_KEY", ""),
 		},
 	}
 }

@@ -64,6 +64,7 @@ ENV ENV=production
 ENV GIN_MODE=release
 ENV DB_PATH=/app/data/firemail.db
 ENV DB_BACKUP_DIR=/app/data/backups
+ENV ENCRYPTION_KEY=
 ENV CORS_ORIGINS=http://localhost:3000
 ENV NODE_ENV=production
 ENV NEXT_PUBLIC_API_BASE_URL=/api/v1

@@ -94,6 +94,7 @@ cd firemailplus
 # 2. 配置环境变量（可选）
 cp .env.example .env
 # 编辑 .env 文件，修改管理员密码和 JWT 密钥
+# 警告：请长期保存 JWT_SECRET；如配置 ENCRYPTION_KEY 也必须保存，否则历史邮箱凭据无法解密。
 
 # 3. 启动服务
 docker-compose up -d

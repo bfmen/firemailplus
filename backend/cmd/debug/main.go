@@ -7,6 +7,7 @@ import (
 	"firemail/internal/config"
 	"firemail/internal/database"
 	"firemail/internal/models"
+	"firemail/internal/security"
 
 	"github.com/joho/godotenv"
 	"golang.org/x/crypto/bcrypt"
@@ -28,11 +29,20 @@ func main() {
 
 	// 初始化配置
 	cfg := config.Load()
+	encryptionStatus, err := security.ConfigureFieldEncryption(security.EncryptionConfig{
+		EncryptionKey: cfg.Encryption.Key,
+		JWTSecret:     cfg.Auth.JWTSecret,
+		Environment:   cfg.Server.Env,
+	})
+	if err != nil {
+		log.Fatalf("❌ Failed to configure database field encryption: %v", err)
+	}
 	fmt.Printf("🔧 配置信息:\n")
 	fmt.Printf("   Admin Username: %s\n", cfg.Auth.AdminUsername)
-	fmt.Printf("   Admin Password: %s\n", cfg.Auth.AdminPassword)
+	fmt.Printf("   Admin Password: [redacted]\n")
 	fmt.Printf("   Database Path: %s\n", cfg.Database.Path)
-	fmt.Printf("   JWT Secret: %s\n", cfg.Auth.JWTSecret)
+	fmt.Printf("   Encryption Source: %s\n", encryptionStatus.Source)
+	fmt.Println("   IMPORTANT: Save JWT_SECRET or ENCRYPTION_KEY; losing it makes encrypted email account credentials unrecoverable.")
 	fmt.Println()
 
 	// 初始化数据库
@@ -48,7 +58,7 @@ func main() {
 	}
 
 	fmt.Printf("📊 数据库中的用户数量: %d\n", len(users))
-	
+
 	if len(users) == 0 {
 		fmt.Println("⚠️  数据库中没有用户，这很奇怪，应该有默认admin用户")
 		createAdminUser(db, cfg)
@@ -57,7 +67,7 @@ func main() {
 
 	fmt.Println("👥 现有用户:")
 	for _, user := range users {
-		fmt.Printf("   ID: %d, Username: %s, Active: %t, Role: %s\n", 
+		fmt.Printf("   ID: %d, Username: %s, Active: %t, Role: %s\n",
 			user.ID, user.Username, user.IsActive, user.Role)
 	}
 	fmt.Println()
@@ -72,7 +82,7 @@ func main() {
 	}
 
 	fmt.Printf("✅ 找到admin用户: %s (ID: %d)\n", adminUser.Username, adminUser.ID)
-	
+
 	// 测试密码
 	fmt.Printf("🔐 测试密码 '%s'...\n", cfg.Auth.AdminPassword)
 	if adminUser.CheckPassword(cfg.Auth.AdminPassword) {

@@ -22,8 +22,11 @@ services:
       - ADMIN_PASSWORD=admin123
       
       # JWT配置（必须修改）
+      # 重要：JWT_SECRET 默认也用于派生数据库字段加密密钥，请长期保存。
+      # 如改用 ENCRYPTION_KEY，也必须保存好 ENCRYPTION_KEY；丢失密钥会导致历史邮箱凭据无法解密。
       - JWT_SECRET=your_jwt_secret_key_change_this_in_production
       - JWT_EXPIRY=24h
+      - ENCRYPTION_KEY=
       
       # 数据库配置
       - DB_PATH=/app/data/firemail.db

@@ -12,6 +12,7 @@ import (
 
 	"firemail/internal/database/migration"
 	"firemail/internal/models"
+	"firemail/internal/security"
 	"firemail/internal/services"
 
 	"gorm.io/driver/sqlite"
@@ -124,6 +125,10 @@ func InitializeWithDriver(dbPath string, usePureGo bool) (*gorm.DB, error) {
 	// 重新应用SQLite性能优化
 	if err := applySQLiteOptimizations(db); err != nil {
 		return nil, fmt.Errorf("failed to re-apply SQLite optimizations: %w", err)
+	}
+
+	if err := migrateEmailAccountCredentialsToEncrypted(db); err != nil {
+		return nil, fmt.Errorf("failed to migrate email account credentials encryption: %w", err)
 	}
 
 	// 创建默认管理员用户
@@ -318,6 +323,70 @@ func syncAdminPassword(db *gorm.DB) error {
 		log.Printf("Admin user is already synchronized: %s", admin.Username)
 	}
 
+	return nil
+}
+
+type emailAccountCredentialRow struct {
+	ID          uint
+	Password    string
+	OAuth2Token string `gorm:"column:oauth2_token"`
+}
+
+func migrateEmailAccountCredentialsToEncrypted(db *gorm.DB) error {
+	var rows []emailAccountCredentialRow
+	if err := db.Raw("SELECT id, password, oauth2_token FROM email_accounts").Scan(&rows).Error; err != nil {
+		return err
+	}
+
+	migrated := 0
+	var migrationErrors []error
+
+	for _, row := range rows {
+		updates := map[string]interface{}{}
+
+		if row.Password != "" && !security.IsEncryptedString(row.Password) {
+			encryptedPassword, err := security.EncryptString(row.Password)
+			if err != nil {
+				migrationErrors = append(migrationErrors, fmt.Errorf("account %d password: %w", row.ID, err))
+			} else {
+				updates["password"] = encryptedPassword
+			}
+		}
+
+		if row.OAuth2Token != "" && !security.IsEncryptedString(row.OAuth2Token) {
+			encryptedToken, err := security.EncryptString(row.OAuth2Token)
+			if err != nil {
+				migrationErrors = append(migrationErrors, fmt.Errorf("account %d oauth2_token: %w", row.ID, err))
+			} else {
+				updates["oauth2_token"] = encryptedToken
+			}
+		}
+
+		if len(updates) == 0 {
+			continue
+		}
+
+		if password, ok := updates["password"]; ok {
+			if err := db.Exec("UPDATE email_accounts SET password = ? WHERE id = ?", password, row.ID).Error; err != nil {
+				migrationErrors = append(migrationErrors, fmt.Errorf("account %d password update: %w", row.ID, err))
+				continue
+			}
+		}
+		if token, ok := updates["oauth2_token"]; ok {
+			if err := db.Exec("UPDATE email_accounts SET oauth2_token = ? WHERE id = ?", token, row.ID).Error; err != nil {
+				migrationErrors = append(migrationErrors, fmt.Errorf("account %d oauth2_token update: %w", row.ID, err))
+				continue
+			}
+		}
+		migrated++
+	}
+
+	if migrated > 0 {
+		log.Printf("Encrypted legacy credentials for %d email accounts", migrated)
+	}
+	if len(migrationErrors) > 0 {
+		return errors.Join(migrationErrors...)
+	}
 	return nil
 }
 

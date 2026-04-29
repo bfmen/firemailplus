@@ -3,6 +3,10 @@ package models
 import (
 	"encoding/json"
 	"time"
+
+	"firemail/internal/security"
+
+	"gorm.io/gorm"
 )
 
 // EmailAccount 邮件账户模型
@@ -54,6 +58,54 @@ func (EmailAccount) TableName() string {
 	return "email_accounts"
 }
 
+func (ea *EmailAccount) BeforeSave(tx *gorm.DB) error {
+	return ea.EncryptSensitiveFields()
+}
+
+func (ea *EmailAccount) AfterFind(tx *gorm.DB) error {
+	return ea.DecryptSensitiveFields()
+}
+
+func (ea *EmailAccount) EncryptSensitiveFields() error {
+	var err error
+
+	if ea.Password != "" {
+		ea.Password, err = security.EncryptString(ea.Password)
+		if err != nil {
+			return err
+		}
+	}
+
+	if ea.OAuth2Token != "" {
+		ea.OAuth2Token, err = security.EncryptString(ea.OAuth2Token)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (ea *EmailAccount) DecryptSensitiveFields() error {
+	var err error
+
+	if ea.Password != "" {
+		ea.Password, _, err = security.DecryptString(ea.Password)
+		if err != nil {
+			return err
+		}
+	}
+
+	if ea.OAuth2Token != "" {
+		ea.OAuth2Token, _, err = security.DecryptString(ea.OAuth2Token)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // OAuth2TokenData OAuth2 token数据结构
 type OAuth2TokenData struct {
 	AccessToken  string    `json:"access_token"`
@@ -70,8 +122,12 @@ func (ea *EmailAccount) SetOAuth2Token(token *OAuth2TokenData) error {
 	if err != nil {
 		return err
 	}
-	// TODO: 这里应该加密存储
-	ea.OAuth2Token = string(tokenBytes)
+
+	encryptedToken, err := security.EncryptString(string(tokenBytes))
+	if err != nil {
+		return err
+	}
+	ea.OAuth2Token = encryptedToken
 	return nil
 }
 
@@ -81,10 +137,13 @@ func (ea *EmailAccount) GetOAuth2Token() (*OAuth2TokenData, error) {
 		return nil, nil
 	}
 
-	// TODO: 这里应该解密
-	var token OAuth2TokenData
-	err := json.Unmarshal([]byte(ea.OAuth2Token), &token)
+	tokenJSON, _, err := security.DecryptString(ea.OAuth2Token)
 	if err != nil {
+		return nil, err
+	}
+
+	var token OAuth2TokenData
+	if err := json.Unmarshal([]byte(tokenJSON), &token); err != nil {
 		return nil, err
 	}
 
