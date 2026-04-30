@@ -78,11 +78,6 @@ func (j *JWTManager) RefreshToken(tokenString string) (string, error) {
 		return "", err
 	}
 
-	// 检查token是否即将过期（在过期前30分钟内可以刷新）
-	if time.Until(claims.ExpiresAt.Time) > 30*time.Minute {
-		return "", errors.New("token is not eligible for refresh")
-	}
-
 	// 创建新的claims
 	newClaims := &JWTClaims{
 		UserID:   claims.UserID,
