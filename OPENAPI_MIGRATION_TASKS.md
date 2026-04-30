@@ -1034,6 +1034,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
   - Kept Docker Hub base-image override inputs and build args so registry mirror workflows remain supported.
   - Added Bug Report and Feature Request issue forms plus a repository PR template with validation, OpenAPI, deployment/E2E, and secret-safety checklists.
   - Extended `scripts/check-docker-build-config.mjs` so CI validates the expected multi-arch publish shape and the new CI gate workflow.
+  - After the first push, GitHub reported Node.js 20 action deprecation warnings from older action majors, so workflow action references were upgraded to current stable major tags and revalidated with `actionlint`.
 - Self Review Checklist:
   - [x] CI workflow covers backend tests, frontend type-check, generated API drift, and Docker config checks.
   - [x] Docker publish workflow builds amd64 and arm64 as separate matrix jobs and creates a manifest after both complete.
@@ -1151,7 +1152,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - T27 passed on 2026-04-30: Docker build was blocked by upstream base image pulls, local production fallback was rebuilt and fixed, two Outlook accounts were imported with credentials kept out of tracked files, backend harness passed 11/11 checks, jshook passed login/mailbox/SSE/search/folder-contract checks, sanitized frontend HAR/screenshots were written under `/tmp/firemailplus-e2e-artifacts`, artifact leak scan passed, and backend/frontend/generated/diff gates pass.
 - T28 passed on 2026-04-30: final cleanup ignored `.codex/` and `backend/attachments/`, T27 commit `e43a367` was recorded, backend tests, frontend type-check, OpenAPI/codegen, generated drift, and diff checks all passed, and final residual risks/artifact locations are recorded.
 - T29 passed on 2026-04-30: Docker registry access recovered, current HEAD image `firemailplus:e2e-docker-rerun` built successfully, isolated container on `http://localhost:3200` passed health/root checks, backend harness passed 11/11 checks, jshook passed login/mailbox/120s hold/search/folder-contract checks, sanitized Docker HAR/network artifacts were written under `/tmp/firemailplus-e2e-artifacts-docker`, artifact secret scan passed after SSE query-token redaction, and final backend/frontend/generated/diff gates passed.
-- T30 passed on 2026-04-30: GitHub CI workflow, parallel multi-arch Docker publish workflow, issue templates, PR template, and Docker config static checks were added; YAML/static checks and backend/frontend/generated/diff gates passed; changes were committed for push to `origin/main`.
+- T30 passed on 2026-04-30: GitHub CI workflow, parallel multi-arch Docker publish workflow, issue templates, PR template, and Docker config static checks were added; workflow action majors were refreshed after GitHub reported Node.js 20 action deprecation warnings; YAML/static checks and backend/frontend/generated/diff gates passed; changes were committed for push to `origin/main`.
 
 ## Deferred Decisions
 
