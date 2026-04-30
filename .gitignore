@@ -1,4 +1,5 @@
 # Local environment files
+.codex/
 .env
 .env.*
 !.env.example
@@ -16,6 +17,7 @@ frontend/.env.*
 *.log
 logs/
 backend/backups/
+backend/attachments/
 backups/
 
 # Generated diagnostics

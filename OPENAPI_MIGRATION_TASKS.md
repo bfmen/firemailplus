@@ -62,7 +62,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 | T25 | done | Improve Docker build resilience around external base images. | Build supports mirror/base-image overrides and retry; Docker or documented fallback validation passes. |
 | T26 | done | Add reproducible local production E2E harness and reporting. | Backend curl and frontend jshook flows produce redacted artifacts under `/tmp/firemailplus-e2e-artifacts`. |
 | T27 | done | Rebuild, deploy a clean test instance, import the two Outlook accounts, and rerun full E2E. | Backend curl and frontend jshook pass with no unexpected 4xx/5xx/timeout/leaks. |
-| T28 | pending | Record final E2E acceptance and cleanup. | Task file records final commands, commits, risks, and clean generated/worktree status. |
+| T28 | done | Record final E2E acceptance and cleanup. | Task file records final commands, commits, risks, and clean generated/worktree status. |
 
 ## Per-Task Log
 
@@ -945,6 +945,40 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
   - Modified files: `backend/internal/database/database.go`, `frontend/next.config.ts`, `frontend/src/hooks/use-hydration.ts`, `scripts/e2e-local-production.mjs`, `docs/local-production-e2e.md`, and this task file.
   - Runtime artifacts remain only under `/tmp/firemailplus-e2e-artifacts`; raw credentials, raw HAR, runtime env, and logs are not committed.
 
+### T28 - Final E2E Acceptance And Cleanup
+
+- ID: T28
+- Status: done
+- Goal: Record final E2E acceptance, commits, residual risks, generated drift status, and worktree cleanup after T27.
+- Code To Inspect: `OPENAPI_MIGRATION_TASKS.md`, `.gitignore`, `git status`, E2E artifact summaries, final validation command outputs.
+- Allowed Changes: `OPENAPI_MIGRATION_TASKS.md`, `.gitignore`, and final documentation-only cleanup if needed. Do not commit runtime artifacts or credentials.
+- Implementation Notes:
+  - Started after T27 commit `e43a367`.
+  - Cleanup finding: `.codex/` is local agent state and `backend/attachments/` is runtime attachment storage; both should be ignored rather than committed.
+  - Added `.codex/` and `backend/attachments/` to `.gitignore`.
+  - Final worktree status before T28 commit contains only `.gitignore` and this task file as tracked modifications.
+  - Residual risk: Docker image build was not completed because upstream base image pulls failed before application code compiled; local production fallback and all app-level gates passed. Redocly still reports the accepted F011 ambiguous legacy path warnings.
+- Self Review Checklist:
+  - [x] T27 commit is recorded.
+  - [x] Runtime/local untracked directories are ignored or explicitly recorded as non-committed.
+  - [x] Final backend, frontend, OpenAPI/codegen, generated drift, and diff checks pass.
+  - [x] Final task file records residual risks and artifact locations without secrets.
+- Acceptance Commands:
+  - `git status --short --branch`
+  - `cd backend && go test ./...`
+  - `cd frontend && pnpm type-check`
+  - `make check-api-generated`
+  - `git diff --exit-code -- backend/internal/api/generated frontend/src/api/generated`
+  - `git diff --check`
+- Exit Result: passed on 2026-04-30.
+  - `git status --short --branch`: before T28 commit, only `.gitignore` and `OPENAPI_MIGRATION_TASKS.md` are modified; `.codex/` and `backend/attachments/` are ignored.
+  - `cd backend && go test ./...`: passed.
+  - `cd frontend && pnpm type-check`: passed.
+  - `make check-api-generated`: passed with accepted F011 Redocly warnings.
+  - `git diff --exit-code -- backend/internal/api/generated frontend/src/api/generated`: passed.
+  - `git diff --check`: passed.
+  - Final artifact locations: redacted E2E reports and sanitized HAR/screenshots remain under `/tmp/firemailplus-e2e-artifacts`; runtime env and service logs remain under `/tmp/firemailplus-e2e`.
+
 ## Findings
 
 - F001: Phase 1 stable route boundary should start from real registrations in `backend/cmd/firemail/main.go`, plus attachment routes registered through `AttachmentHandler.RegisterRoutes(api)`.
@@ -973,6 +1007,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - F024: Reproducible E2E needs a committed harness but not committed evidence. The durable contract is script/docs plus redacted artifacts under `/tmp/firemailplus-e2e-artifacts`, with real account credentials supplied only through environment variables at execution time.
 - F025: Local Next standalone fallback must mirror Docker's asset copy semantics. Running `frontend/.next/standalone/server.js` from the repo without `.next/static` under the standalone directory serves chunk URLs as 404 HTML, preventing hydration and leaving the UI on the initialization screen.
 - F026: The frontend hydration guard needs a client-mounted fallback in addition to persisted auth-store rehydration, so a fresh browser state cannot remain indefinitely blocked by a missing or delayed persisted store callback.
+- F027: Runtime attachment storage and local agent state are not source artifacts. `backend/attachments/` and `.codex/` should stay ignored so clean E2E runs do not create accidental commit candidates.
 
 ## Errors Encountered
 
@@ -1031,6 +1066,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - T25 passed on 2026-04-30: Dockerfile, Compose, local build script, and GitHub workflow support base-image overrides; local build script retries transient registry failures; docs/static validation and full backend/frontend/generated gates pass.
 - T26 passed on 2026-04-30: local production E2E harness, jshook plan, redaction contract, docs, dry-run artifacts, backend/frontend/generated gates, and diff checks pass.
 - T27 passed on 2026-04-30: Docker build was blocked by upstream base image pulls, local production fallback was rebuilt and fixed, two Outlook accounts were imported with credentials kept out of tracked files, backend harness passed 11/11 checks, jshook passed login/mailbox/SSE/search/folder-contract checks, sanitized frontend HAR/screenshots were written under `/tmp/firemailplus-e2e-artifacts`, artifact leak scan passed, and backend/frontend/generated/diff gates pass.
+- T28 passed on 2026-04-30: final cleanup ignored `.codex/` and `backend/attachments/`, T27 commit `e43a367` was recorded, backend tests, frontend type-check, OpenAPI/codegen, generated drift, and diff checks all passed, and final residual risks/artifact locations are recorded.
 
 ## Deferred Decisions
 
