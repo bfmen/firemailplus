@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -37,6 +38,51 @@ func TestDeduplicationHandlerRejectsCrossUserAccount(t *testing.T) {
 	require.False(t, manager.scheduleCalled)
 	require.Error(t, handler.validateAccountAccess(c, account.ID, attacker.ID))
 	require.NoError(t, handler.validateAccountAccess(c, account.ID, owner.ID))
+}
+
+func TestScheduleDeduplicationAllowsEmptyBodyWithDefaults(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupDeduplicationHandlerTestDB(t)
+	owner := createDeduplicationHandlerUser(t, db, "owner-empty-schedule")
+	account := createDeduplicationHandlerAccount(t, db, owner.ID)
+	manager := &deduplicationHandlerFakeManager{}
+	handler := NewDeduplicationHandler(manager, db)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/deduplication/accounts/1/schedule", nil)
+	c.Params = gin.Params{{Key: "id", Value: "1"}}
+	c.Set("userID", owner.ID)
+
+	handler.ScheduleDeduplication(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.True(t, manager.scheduleCalled)
+	require.NotNil(t, manager.lastSchedule)
+	require.True(t, manager.lastSchedule.Enabled)
+	require.Equal(t, services.DefaultDeduplicationScheduleFrequency, manager.lastSchedule.Frequency)
+	require.Equal(t, services.DefaultDeduplicationScheduleTime, manager.lastSchedule.Time)
+	require.Equal(t, account.ID, manager.lastAccountID)
+}
+
+func TestScheduleDeduplicationReturnsBadRequestForInvalidSchedule(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupDeduplicationHandlerTestDB(t)
+	owner := createDeduplicationHandlerUser(t, db, "owner-invalid-schedule")
+	createDeduplicationHandlerAccount(t, db, owner.ID)
+	manager := &deduplicationHandlerFakeManager{scheduleErr: errors.New("invalid schedule frequency")}
+	handler := NewDeduplicationHandler(manager, db)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/deduplication/accounts/1/schedule", bytes.NewBufferString(`{"enabled":true,"frequency":"hourly","time":"12:00"}`))
+	c.Params = gin.Params{{Key: "id", Value: "1"}}
+	c.Set("userID", owner.ID)
+
+	handler.ScheduleDeduplication(c)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	require.True(t, manager.scheduleCalled)
 }
 
 func setupDeduplicationHandlerTestDB(t *testing.T) *gorm.DB {
@@ -86,6 +132,9 @@ func createDeduplicationHandlerAccount(t *testing.T, db *gorm.DB, userID uint) *
 
 type deduplicationHandlerFakeManager struct {
 	scheduleCalled bool
+	scheduleErr    error
+	lastAccountID  uint
+	lastSchedule   *services.DeduplicationSchedule
 }
 
 func (m *deduplicationHandlerFakeManager) DeduplicateAccount(context.Context, uint, *services.DeduplicationOptions) (*services.BatchDeduplicationResult, error) {
@@ -97,9 +146,17 @@ func (m *deduplicationHandlerFakeManager) DeduplicateUser(context.Context, uint,
 func (m *deduplicationHandlerFakeManager) GetDeduplicationReport(context.Context, uint) (*services.DeduplicationReport, error) {
 	return &services.DeduplicationReport{}, nil
 }
-func (m *deduplicationHandlerFakeManager) ScheduleDeduplication(context.Context, uint, *services.DeduplicationSchedule) error {
+func (m *deduplicationHandlerFakeManager) ScheduleDeduplication(_ context.Context, accountID uint, schedule *services.DeduplicationSchedule) error {
 	m.scheduleCalled = true
-	return nil
+	m.lastAccountID = accountID
+	m.lastSchedule = schedule
+	if schedule.Frequency == "" {
+		schedule.Frequency = services.DefaultDeduplicationScheduleFrequency
+	}
+	if schedule.Time == "" {
+		schedule.Time = services.DefaultDeduplicationScheduleTime
+	}
+	return m.scheduleErr
 }
 func (m *deduplicationHandlerFakeManager) CancelScheduledDeduplication(context.Context, uint) error {
 	return nil

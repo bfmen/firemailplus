@@ -46,6 +46,7 @@ import type {
   NotFoundResponse,
   OAuthInitSuccessResponse,
   OAuthTokenSuccessResponse,
+  ScheduleDeduplicationRequest,
   SearchEmailsParams,
   ServiceUnavailableResponse,
   SoftDeleteCleanupRequest,
@@ -2894,7 +2895,7 @@ export const getScheduleDeduplicationUrl = (id: number,) => {
 }
 
 export const scheduleDeduplication = async (id: number,
-    jsonBodyBody: JsonBodyBody, options?: RequestInit): Promise<scheduleDeduplicationResponse> => {
+    scheduleDeduplicationRequest?: ScheduleDeduplicationRequest, options?: RequestInit): Promise<scheduleDeduplicationResponse> => {
 
   const res = await fetch(getScheduleDeduplicationUrl(id),
   {
@@ -2902,7 +2903,7 @@ export const scheduleDeduplication = async (id: number,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
-      jsonBodyBody,)
+      scheduleDeduplicationRequest,)
   }
 )
 

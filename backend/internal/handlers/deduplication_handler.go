@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -228,7 +229,7 @@ func (h *DeduplicationHandler) GetDeduplicationReport(c *gin.Context) {
 
 // ScheduleDeduplicationRequest 计划去重请求
 type ScheduleDeduplicationRequest struct {
-	Enabled   bool                           `json:"enabled"`
+	Enabled   *bool                          `json:"enabled"`
 	Frequency string                         `json:"frequency"` // daily, weekly, monthly
 	Time      string                         `json:"time"`      // HH:MM format
 	Options   *services.DeduplicationOptions `json:"options"`
@@ -247,8 +248,8 @@ func (h *DeduplicationHandler) ScheduleDeduplication(c *gin.Context) {
 		return
 	}
 
-	var req ScheduleDeduplicationRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	req, err := bindScheduleDeduplicationRequest(c)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error:   "Invalid request",
 			Message: err.Error(),
@@ -265,9 +266,14 @@ func (h *DeduplicationHandler) ScheduleDeduplication(c *gin.Context) {
 		return
 	}
 
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
 	// 创建计划
 	schedule := &services.DeduplicationSchedule{
-		Enabled:   req.Enabled,
+		Enabled:   enabled,
 		Frequency: req.Frequency,
 		Time:      req.Time,
 		Options:   req.Options,
@@ -276,8 +282,8 @@ func (h *DeduplicationHandler) ScheduleDeduplication(c *gin.Context) {
 	// 计划去重任务
 	err = h.deduplicationManager.ScheduleDeduplication(c.Request.Context(), uint(accountID), schedule)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error:   "Failed to schedule deduplication",
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "Invalid deduplication schedule",
 			Message: err.Error(),
 		})
 		return
@@ -288,6 +294,21 @@ func (h *DeduplicationHandler) ScheduleDeduplication(c *gin.Context) {
 		Message: "Deduplication scheduled successfully",
 		Data:    schedule,
 	})
+}
+
+func bindScheduleDeduplicationRequest(c *gin.Context) (ScheduleDeduplicationRequest, error) {
+	var req ScheduleDeduplicationRequest
+	if c.Request == nil || c.Request.Body == nil || c.Request.ContentLength == 0 {
+		return req, nil
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		if err == io.EOF {
+			return ScheduleDeduplicationRequest{}, nil
+		}
+		return ScheduleDeduplicationRequest{}, err
+	}
+	return req, nil
 }
 
 // CancelScheduledDeduplication 取消计划去重任务

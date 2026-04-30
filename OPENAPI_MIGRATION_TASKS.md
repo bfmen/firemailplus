@@ -55,7 +55,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 | T18 | done | Fix email-group default semantics so user default groups can be renamed safely. | First custom group can be updated; system groups remain protected; default delete protection remains tested. |
 | T19 | done | Convert batch account mark-read to an asynchronous, observable job. | API returns accepted job data quickly; job status/SSE progress are test-covered; no 60s request timeout. |
 | T20 | done | Stabilize single-email read-state remote sync errors and frontend rewrite behavior. | Remote/provider failures return typed errors, not opaque 500; direct backend and frontend rewrite behavior match. |
-| T21 | pending | Fix dedup stats/report fallback and schedule defaults/validation. | Stats/report no longer 500 without enhanced dedup; empty schedule uses defaults; invalid schedule returns 400. |
+| T21 | done | Fix dedup stats/report fallback and schedule defaults/validation. | Stats/report no longer 500 without enhanced dedup; empty schedule uses defaults; invalid schedule returns 400. |
 | T22 | pending | Make admin soft-delete cleanup usable with an empty body. | Empty body uses default retention days; OpenAPI request body is optional; focused tests pass. |
 | T23 | pending | Harden SSE heartbeat/reconnect behavior and redact frontend token logs. | 120s browser smoke receives heartbeat; console/HAR/log scans contain no token/JWT leakage. |
 | T24 | pending | Fix search page folder loading and query/empty-state behavior. | HAR has no folder request without `account_id`; search URL and empty state reflect current query. |
@@ -677,6 +677,42 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
   - `make check-api-generated`: passed; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
   - `git diff --check`: passed.
 
+### T21 - Dedup Stats Fallback And Schedule Defaults
+
+- ID: T21
+- Status: done
+- Goal: Fix dedup stats/report fallback and schedule defaults/validation so public dedup endpoints do not return avoidable 500s.
+- Code To Inspect: `backend/internal/handlers/deduplication_handler.go`, `backend/internal/services/deduplication_manager.go`, dedup tests, `openapi/firemail.yaml`, generated artifacts.
+- Allowed Changes: dedup manager fallback stats/report, schedule request parsing/defaulting/validation, focused tests, OpenAPI/generated artifacts, task file.
+- Implementation Notes:
+  - Initial finding: `GetDeduplicationReport` only accepts `CreateDeduplicator("standard")` if it implements `EnhancedDeduplicator`; default configurations can return `enhanced deduplicator not available`.
+  - Initial finding: schedule handler requires JSON and passes empty `frequency/time` to the service, causing empty body or `{}` to become a service-level 500 rather than defaults or 400.
+  - `GetDeduplicationReport` now uses enhanced stats when available, but falls back to DB-derived totals and duplicate-group counts when enhanced dedup is disabled or unavailable.
+  - Recent dedup activity lookup is best-effort and does not fail report/stats if the optional activity table is absent.
+  - Schedule defaults are centralized in service constants: enabled by handler default, `daily` frequency, and `03:00` time.
+  - Empty schedule bodies are accepted; invalid JSON remains 400, and invalid schedule values now return 400 instead of 500.
+  - OpenAPI now uses a typed optional `ScheduleDeduplicationRequest` body for the schedule endpoint; generated Go/TS artifacts were refreshed.
+- Self Review Checklist:
+  - [x] Report and stats return stable success without enhanced deduplication.
+  - [x] Empty schedule body uses documented defaults.
+  - [x] Invalid schedule frequency/time returns 400, not 500.
+  - [x] OpenAPI schedule request schema is typed.
+  - [x] Full gates pass.
+- Acceptance Commands:
+  - `cd backend && go test ./internal/services -run 'TestDeduplication'`
+  - `cd backend && go test ./internal/handlers -run 'TestDeduplication'`
+  - `cd backend && go test ./...`
+  - `cd frontend && pnpm type-check`
+  - `make check-api-generated`
+  - `git diff --check`
+- Exit Result: passed on 2026-04-30.
+  - `cd backend && go test ./internal/services -run 'TestDeduplication'`: passed after E018.
+  - `cd backend && go test ./internal/handlers -run 'TestDeduplication'`: passed.
+  - `cd backend && go test ./...`: passed.
+  - `cd frontend && pnpm type-check`: passed.
+  - `make check-api-generated`: passed after E019; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
+  - `git diff --check`: passed.
+
 ## Findings
 
 - F001: Phase 1 stable route boundary should start from real registrations in `backend/cmd/firemail/main.go`, plus attachment routes registered through `AttachmentHandler.RegisterRoutes(api)`.
@@ -697,6 +733,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - F016: Final state is reproducible through `make check-api-generated`; generated server/SDK artifacts are still newly untracked in this worktree until the migration commit is staged/committed, so tracked generated drift is checked explicitly by path.
 - F017: Batch account mark-read cannot stay in the request path because provider `Connect`/`SelectFolder`/`MarkAsRead` latency is remote-service-bound. T19 makes it a persisted `mailbox_jobs` workflow and exposes status at `GET /api/v1/accounts/batch/mark-read/{job_id}`.
 - F018: Single-message read/unread remains strong-consistency by design, but remote IMAP failures need stable API semantics. T20 preserves no-local-mutation-on-failure and exposes typed 409/502 JSON errors so Next rewrite callers can surface the backend reason instead of an opaque 500.
+- F019: Dedup stats/report should not be gated on enhanced dedup being enabled. T21 adds a DB-derived fallback from `emails` for total checked and duplicate message groups, keeping public report/stats endpoints useful in default deployments.
 
 ## Errors Encountered
 
@@ -704,6 +741,8 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - E015: T18 initial focused format/test command was launched from `backend/` while still using repository-root file paths, so `gofmt` reported `lstat backend/internal/services/...: no such file or directory`. Different strategy applied: rerun the same command with paths relative to `backend/`.
 - E016: T19 initial focused handler format/test command was launched from `backend/` while still using the repository-root path `backend/internal/handlers/email_accounts_test.go`, so `gofmt` reported `lstat backend/internal/handlers/email_accounts_test.go: no such file or directory`. Different strategy applied: rerun with `internal/handlers/email_accounts_test.go` relative to `backend/`.
 - E017: T20 initial focused format/test command was launched from `backend/` while still using repository-root paths for service and handler files, so `gofmt` reported `lstat backend/internal/services/email_service.go: no such file or directory`. Different strategy applied: rerun with `internal/...` paths relative to `backend/`.
+- E018: T21 initial fallback report test saw zero fallback stats because enhanced dedup was enabled in the global environment and bypassed the fallback path. Different strategy applied: explicitly disable enhanced dedup inside that focused test and restore the prior value with `t.Cleanup`.
+- E019: T21 first OpenAPI schema patch matched the wrong `requestBody` blocks, causing generated clients to type `updateEmailAccount` and then `updateEmail` with the schedule schema. Different strategy applied: patch with operation-specific context and inspect generated operation signatures before rerunning full gates.
 - E001: Initial Redocly lint failed because `SuccessResponse.data` used `nullable` without a sibling `type`, and `/health` lacked an explicit security declaration. Different strategy applied: define `data` as a nullable object and add `security: []` to the public health operation.
 - E002: Initial Orval config generated schema files under a directory named `firemail.schemas.ts`, causing poor `from './.'` imports. Different strategy applied: use `frontend/src/api/generated/model` as the schema directory.
 - E003: `pnpm type-check` failed because `orval.config.ts` used unsupported `output.prettier`. Different strategy applied: remove that field and rely on Orval's generated output formatting.
@@ -739,6 +778,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - T15 passed on 2026-04-30: README generation docs were added and final backend, frontend, OpenAPI/codegen, route drift, SDK drift, race, migration/CRUD, generated drift, and diff checks passed.
 - T19 passed on 2026-04-30: batch account mark-read now returns an accepted persisted job, job status is user-scoped, SSE progress is emitted, backend/frontend/generated gates pass, and no new Redocly warning category remains.
 - T20 passed on 2026-04-30: single-email read/unread remote failures now return typed 409/502 JSON errors with no local state mutation on failure; OpenAPI/generated SDK/backend adapter and frontend type-check gates pass.
+- T21 passed on 2026-04-30: dedup report/stats fallback succeeds without enhanced dedup, empty schedule body uses defaults, invalid schedules return 400, typed OpenAPI schedule schema is generated, and full gates pass.
 
 ## Deferred Decisions
 

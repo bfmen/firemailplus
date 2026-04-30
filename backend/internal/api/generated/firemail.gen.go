@@ -58,6 +58,27 @@ func (e MailboxJobStatus) Valid() bool {
 	}
 }
 
+// Defines values for ScheduleDeduplicationRequestFrequency.
+const (
+	Daily   ScheduleDeduplicationRequestFrequency = "daily"
+	Monthly ScheduleDeduplicationRequestFrequency = "monthly"
+	Weekly  ScheduleDeduplicationRequestFrequency = "weekly"
+)
+
+// Valid indicates whether the value is a known member of the ScheduleDeduplicationRequestFrequency enum.
+func (e ScheduleDeduplicationRequestFrequency) Valid() bool {
+	switch e {
+	case Daily:
+		return true
+	case Monthly:
+		return true
+	case Weekly:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ProviderPath.
 const (
 	ProviderPathGmail   ProviderPath = "gmail"
@@ -365,6 +386,17 @@ type OAuthTokenResponse struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
+// ScheduleDeduplicationRequest defines model for ScheduleDeduplicationRequest.
+type ScheduleDeduplicationRequest struct {
+	Enabled   *bool                                  `json:"enabled,omitempty"`
+	Frequency *ScheduleDeduplicationRequestFrequency `json:"frequency,omitempty"`
+	Options   *map[string]interface{}                `json:"options,omitempty"`
+	Time      *string                                `json:"time,omitempty"`
+}
+
+// ScheduleDeduplicationRequestFrequency defines model for ScheduleDeduplicationRequest.Frequency.
+type ScheduleDeduplicationRequestFrequency string
+
 // SoftDeleteCleanupRequest defines model for SoftDeleteCleanupRequest.
 type SoftDeleteCleanupRequest struct {
 	RetentionDays int `json:"retention_days"`
@@ -588,9 +620,6 @@ type UploadAttachmentMultipartBody struct {
 // DeduplicateAccountJSONBody defines parameters for DeduplicateAccount.
 type DeduplicateAccountJSONBody map[string]interface{}
 
-// ScheduleDeduplicationJSONBody defines parameters for ScheduleDeduplication.
-type ScheduleDeduplicationJSONBody map[string]interface{}
-
 // DeduplicateUserJSONBody defines parameters for DeduplicateUser.
 type DeduplicateUserJSONBody map[string]interface{}
 
@@ -788,7 +817,7 @@ type UpdateProfileJSONRequestBody = UpdateProfileRequest
 type DeduplicateAccountJSONRequestBody DeduplicateAccountJSONBody
 
 // ScheduleDeduplicationJSONRequestBody defines body for ScheduleDeduplication for application/json ContentType.
-type ScheduleDeduplicationJSONRequestBody ScheduleDeduplicationJSONBody
+type ScheduleDeduplicationJSONRequestBody = ScheduleDeduplicationRequest
 
 // DeduplicateUserJSONRequestBody defines body for DeduplicateUser for application/json ContentType.
 type DeduplicateUserJSONRequestBody DeduplicateUserJSONBody

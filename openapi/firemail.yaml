@@ -897,7 +897,11 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdPath'
       requestBody:
-        $ref: '#/components/requestBodies/JsonBody'
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleDeduplicationRequest'
       responses:
         '200':
           $ref: '#/components/responses/Success'
@@ -2155,6 +2159,24 @@ components:
         updated_at:
           type: string
           format: date-time
+    ScheduleDeduplicationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+          default: true
+        frequency:
+          type: string
+          enum: [daily, weekly, monthly]
+          default: daily
+        time:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          default: '03:00'
+        options:
+          type: object
+          additionalProperties: true
     Email:
       type: object
       additionalProperties: true

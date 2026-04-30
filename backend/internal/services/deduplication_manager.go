@@ -13,6 +13,11 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	DefaultDeduplicationScheduleFrequency = "daily"
+	DefaultDeduplicationScheduleTime      = "03:00"
+)
+
 // DeduplicationManager 去重管理器接口
 type DeduplicationManager interface {
 	// 执行账户去重
@@ -308,37 +313,98 @@ func (m *StandardDeduplicationManager) DeduplicateUser(ctx context.Context, user
 
 // GetDeduplicationReport 获取去重报告
 func (m *StandardDeduplicationManager) GetDeduplicationReport(ctx context.Context, accountID uint) (*DeduplicationReport, error) {
-	// 获取统计信息
-	deduplicator := m.deduplicatorFactory.CreateDeduplicator("standard")
-	if enhanced, ok := deduplicator.(EnhancedDeduplicator); ok {
-		stats, err := enhanced.GetDeduplicationStats(ctx, accountID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get stats: %w", err)
+	// 获取统计信息。Enhanced dedup is optional; public report/stats routes
+	// must still return a useful fallback when the enhanced implementation is
+	// disabled by configuration.
+	if m.deduplicatorFactory != nil {
+		deduplicator := m.deduplicatorFactory.CreateDeduplicator("standard")
+		if enhanced, ok := deduplicator.(EnhancedDeduplicator); ok {
+			return m.buildEnhancedDeduplicationReport(ctx, accountID, enhanced)
 		}
-
-		// 获取最近活动
-		var activities []*DeduplicationActivity
-		err = m.db.Where("account_id = ?", accountID).
-			Order("start_time DESC").
-			Limit(10).
-			Find(&activities).Error
-		if err != nil {
-			log.Printf("Failed to get recent activities: %v", err)
-		}
-
-		// 生成建议
-		recommendations := m.generateRecommendations(stats, activities)
-
-		return &DeduplicationReport{
-			AccountID:       accountID,
-			Stats:           stats,
-			RecentActivity:  activities,
-			Recommendations: recommendations,
-			GeneratedAt:     time.Now(),
-		}, nil
+	}
+	if enhanced := m.tryCreateEnhancedStandardDeduplicator(m.db); enhanced != nil {
+		return m.buildEnhancedDeduplicationReport(ctx, accountID, enhanced)
 	}
 
-	return nil, fmt.Errorf("enhanced deduplicator not available")
+	stats, err := m.getFallbackDeduplicationStats(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	activities := m.getRecentDeduplicationActivities(ctx, accountID)
+
+	return &DeduplicationReport{
+		AccountID:       accountID,
+		Stats:           stats,
+		RecentActivity:  activities,
+		Recommendations: m.generateRecommendations(stats, activities),
+		GeneratedAt:     time.Now(),
+	}, nil
+}
+
+func (m *StandardDeduplicationManager) buildEnhancedDeduplicationReport(ctx context.Context, accountID uint, enhanced EnhancedDeduplicator) (*DeduplicationReport, error) {
+	stats, err := enhanced.GetDeduplicationStats(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stats: %w", err)
+	}
+
+	activities := m.getRecentDeduplicationActivities(ctx, accountID)
+
+	return &DeduplicationReport{
+		AccountID:       accountID,
+		Stats:           stats,
+		RecentActivity:  activities,
+		Recommendations: m.generateRecommendations(stats, activities),
+		GeneratedAt:     time.Now(),
+	}, nil
+}
+
+func (m *StandardDeduplicationManager) getFallbackDeduplicationStats(ctx context.Context, accountID uint) (*DeduplicationStats, error) {
+	stats := &DeduplicationStats{LastUpdated: time.Now()}
+	if m.db == nil {
+		return stats, nil
+	}
+
+	if err := m.db.WithContext(ctx).
+		Model(&models.Email{}).
+		Where("account_id = ? AND is_deleted = ?", accountID, false).
+		Count(&stats.TotalChecked).Error; err != nil {
+		return nil, fmt.Errorf("failed to get fallback deduplication total: %w", err)
+	}
+
+	type duplicateRow struct {
+		DuplicatesFound int64 `gorm:"column:duplicates_found"`
+	}
+	var row duplicateRow
+	if err := m.db.WithContext(ctx).Raw(`
+		SELECT COALESCE(SUM(duplicate_count), 0) AS duplicates_found
+		FROM (
+			SELECT COUNT(*) - 1 AS duplicate_count
+			FROM emails
+			WHERE account_id = ? AND is_deleted = ? AND message_id != ''
+			GROUP BY message_id
+			HAVING COUNT(*) > 1
+		) duplicate_groups
+	`, accountID, false).Scan(&row).Error; err != nil {
+		return nil, fmt.Errorf("failed to get fallback deduplication duplicates: %w", err)
+	}
+	stats.DuplicatesFound = row.DuplicatesFound
+	return stats, nil
+}
+
+func (m *StandardDeduplicationManager) getRecentDeduplicationActivities(ctx context.Context, accountID uint) []*DeduplicationActivity {
+	if m.db == nil {
+		return nil
+	}
+
+	var activities []*DeduplicationActivity
+	err := m.db.WithContext(ctx).Where("account_id = ?", accountID).
+		Order("start_time DESC").
+		Limit(10).
+		Find(&activities).Error
+	if err != nil {
+		log.Printf("Failed to get recent activities: %v", err)
+	}
+	return activities
 }
 
 // generateRecommendations 生成去重建议
@@ -393,6 +459,12 @@ func (m *StandardDeduplicationManager) generateRecommendations(stats *Deduplicat
 func (m *StandardDeduplicationManager) ScheduleDeduplication(ctx context.Context, accountID uint, schedule *DeduplicationSchedule) error {
 	if schedule == nil {
 		return fmt.Errorf("schedule is required")
+	}
+	if schedule.Frequency == "" {
+		schedule.Frequency = DefaultDeduplicationScheduleFrequency
+	}
+	if schedule.Time == "" {
+		schedule.Time = DefaultDeduplicationScheduleTime
 	}
 	nextRun, err := calculateNextDeduplicationRun(time.Now(), schedule.Frequency, schedule.Time)
 	if err != nil {
