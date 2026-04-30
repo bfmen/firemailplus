@@ -72,18 +72,6 @@ export function SearchFilters({ onFiltersChange }: SearchFiltersProps) {
     const loadFoldersIfNeeded = async () => {
       if (folders.length > 0) return;
 
-      try {
-        const response = await apiClient.getFolders();
-        if (response.success && response.data) {
-          if (!cancelled) {
-            setFolders(response.data);
-          }
-          return;
-        }
-      } catch (error) {
-        console.warn('Failed to load folders without account id:', error);
-      }
-
       if (accounts.length === 0) return;
 
       try {

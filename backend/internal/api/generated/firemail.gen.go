@@ -449,6 +449,9 @@ type PageSizeQuery = int
 // ProviderPath defines model for ProviderPath.
 type ProviderPath string
 
+// RequiredAccountIdQuery defines model for RequiredAccountIdQuery.
+type RequiredAccountIdQuery = int64
+
 // TablePath defines model for TablePath.
 type TablePath string
 
@@ -710,7 +713,7 @@ type ReplyAllEmailJSONBody map[string]interface{}
 
 // ListFoldersParams defines parameters for ListFolders.
 type ListFoldersParams struct {
-	AccountId *AccountIdQuery `form:"account_id,omitempty" json:"account_id,omitempty"`
+	AccountId RequiredAccountIdQuery `form:"account_id" json:"account_id"`
 }
 
 // CreateFolderJSONBody defines parameters for CreateFolder.
@@ -4894,9 +4897,16 @@ func (siw *ServerInterfaceWrapper) ListFolders(c *gin.Context) {
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListFoldersParams
 
-	// ------------- Optional query parameter "account_id" -------------
+	// ------------- Required query parameter "account_id" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "account_id", c.Request.URL.Query(), &params.AccountId, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if paramValue := c.Query("account_id"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandler(c, fmt.Errorf("Query argument account_id is required, but not found"), http.StatusBadRequest)
+		return
+	}
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "account_id", c.Request.URL.Query(), &params.AccountId, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter account_id: %w", err), http.StatusBadRequest)
 		return

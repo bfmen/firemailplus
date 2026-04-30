@@ -36,6 +36,7 @@ function useSearchResultsState() {
     total,
     page,
     totalPages,
+    searchParams: activeSearchParams,
 
     // 选中状态
     selectedEmailId,
@@ -88,10 +89,17 @@ function useSearchResultsState() {
   // 处理搜索
   const handleSearch = useCallback(
     (searchQuery: string) => {
-      console.log('📄 [SearchResultsPage] 执行搜索:', searchQuery);
-      search(searchQuery);
+      const trimmedQuery = searchQuery.trim();
+      console.log('📄 [SearchResultsPage] 执行搜索:', trimmedQuery);
+      if (trimmedQuery) {
+        router.replace(`/mailbox/search?q=${encodeURIComponent(trimmedQuery)}`);
+        search(trimmedQuery);
+      } else {
+        router.replace('/mailbox/search');
+        search('');
+      }
     },
-    [search]
+    [router, search]
   );
 
   // 处理邮件选择
@@ -118,7 +126,7 @@ function useSearchResultsState() {
   );
 
   // 获取当前搜索查询
-  const currentQuery = searchParams.get('q') || '';
+  const currentQuery = activeSearchParams.q || searchParams.get('q') || '';
 
   return {
     isLoading,

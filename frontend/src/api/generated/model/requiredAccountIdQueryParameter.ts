@@ -12,11 +12,5 @@ completed.
 
  * OpenAPI spec version: 0.3.0
  */
-import type { RequiredAccountIdQueryParameter } from './requiredAccountIdQueryParameter';
 
-export type ListFoldersParams = {
-/**
- * @minimum 1
- */
-account_id: RequiredAccountIdQueryParameter;
-};
+export type RequiredAccountIdQueryParameter = number;

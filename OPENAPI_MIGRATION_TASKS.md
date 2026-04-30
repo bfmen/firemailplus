@@ -58,7 +58,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 | T21 | done | Fix dedup stats/report fallback and schedule defaults/validation. | Stats/report no longer 500 without enhanced dedup; empty schedule uses defaults; invalid schedule returns 400. |
 | T22 | done | Make admin soft-delete cleanup usable with an empty body. | Empty body uses default retention days; OpenAPI request body is optional; focused tests pass. |
 | T23 | done | Harden SSE heartbeat/reconnect behavior and redact frontend token logs. | 120s browser smoke receives heartbeat; console/HAR/log scans contain no token/JWT leakage. |
-| T24 | pending | Fix search page folder loading and query/empty-state behavior. | HAR has no folder request without `account_id`; search URL and empty state reflect current query. |
+| T24 | done | Fix search page folder loading and query/empty-state behavior. | HAR has no folder request without `account_id`; search URL and empty state reflect current query. |
 | T25 | pending | Improve Docker build resilience around external base images. | Build supports mirror/base-image overrides and retry; Docker or documented fallback validation passes. |
 | T26 | pending | Add reproducible local production E2E harness and reporting. | Backend curl and frontend jshook flows produce redacted artifacts under `/tmp/firemailplus-e2e-artifacts`. |
 | T27 | pending | Rebuild, deploy a clean test instance, import the two Outlook accounts, and rerun full E2E. | Backend curl and frontend jshook pass with no unexpected 4xx/5xx/timeout/leaks. |
@@ -787,6 +787,44 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
   - `make check-api-generated`: passed; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
   - `git diff --check`: passed.
 
+### T24 - Search Folders And Query Empty State
+
+- ID: T24
+- Status: done
+- Goal: Fix the search page so it never requests folders without `account_id`, and keep search URL/current query/empty-state messaging synchronized.
+- Code To Inspect: `docs/e2e-issue-investigation.md`, `frontend/src/components/mailbox/search-filters.tsx`, `frontend/src/hooks/use-search-emails.ts`, `frontend/src/components/mailbox/search-results-page.tsx`, `frontend/src/components/mailbox/search-bar.tsx`, `frontend/src/lib/api.ts`, `openapi/firemail.yaml`.
+- Allowed Changes: search page/filter/frontend API facade, OpenAPI folder list parameter contract, generated API artifacts, focused static checks, task file.
+- Implementation Notes:
+  - Initial finding: E2E investigation recorded two `GET /api/v1/folders` requests without `account_id`, both returning 400.
+  - Initial finding: `SearchFilters` first attempts `apiClient.getFolders()` with no account id, then only falls back to per-account folder loading after that request fails.
+  - Initial finding: `apiClient.getFolders(accountId?: number)` is typed optional even though `backend/internal/handlers/folders.go` requires `account_id`.
+  - Initial finding: `openapi/firemail.yaml` reuses optional `AccountIdQuery` for `listFolders`, so generated SDK signatures do not prevent no-arg folder-list calls.
+  - Initial finding: search-page `handleSearch()` calls the hook search method but does not update the URL; empty-state rendering uses URL `q`, so typed searches with zero results can show the wrong empty state.
+  - Removed the no-account fallback request from `SearchFilters`; folders are now loaded only by iterating known accounts.
+  - `ApiClient.getFolders()` now requires a positive numeric `accountId` and throws before building an invalid request.
+  - OpenAPI now uses `RequiredAccountIdQuery` only for `GET /api/v1/folders`, preserving optional account filters on email list/search operations.
+  - Generated Go and TypeScript artifacts now require `account_id` for listFolders.
+  - Search results page now synchronizes typed searches and clear actions into the URL and uses active hook query state before URL fallback for empty-state decisions.
+  - Added `frontend/scripts/check-search-contract.mjs` to prevent no-arg folder calls and URL/current-query drift from regressing.
+- Self Review Checklist:
+  - [x] Search filters only load folders per known account id.
+  - [x] Frontend facade disallows `getFolders()` without account id.
+  - [x] OpenAPI/generated SDK models `listFolders` with a required account id without changing unrelated optional account filters.
+  - [x] Search page URL/current query/empty state stay synchronized for typed searches.
+  - [x] Focused static check and full gates pass.
+- Acceptance Commands:
+  - `cd frontend && node scripts/check-search-contract.mjs`
+  - `cd frontend && pnpm type-check`
+  - `make check-api-generated`
+  - `cd backend && go test ./...`
+  - `git diff --check`
+- Exit Result: passed on 2026-04-30.
+  - `cd frontend && node scripts/check-search-contract.mjs`: passed.
+  - `cd frontend && pnpm type-check`: passed.
+  - `make check-api-generated`: passed after staging regenerated artifacts for the generated-drift check; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
+  - `cd backend && go test ./...`: passed.
+  - `git diff --check` and `git diff --cached --check`: passed.
+
 ## Findings
 
 - F001: Phase 1 stable route boundary should start from real registrations in `backend/cmd/firemail/main.go`, plus attachment routes registered through `AttachmentHandler.RegisterRoutes(api)`.
@@ -810,6 +848,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - F019: Dedup stats/report should not be gated on enhanced dedup being enabled. T21 adds a DB-derived fallback from `emails` for total checked and duplicate message groups, keeping public report/stats endpoints useful in default deployments.
 - F020: Soft-delete cleanup has two valid caller modes: explicit `retention_days` for admin control and empty body for the existing 30-day operational default. T22 aligns handler and OpenAPI with both modes.
 - F021: SSE query-token compatibility still requires a credential-bearing browser request URL, but frontend code must never echo that URL or token into console output. T23 separates the real EventSource URL builder from sanitized logging metadata and closes stale EventSource objects before managed reconnects.
+- F022: Folder listing is account-scoped by backend contract. Reusing optional `AccountIdQuery` for `listFolders` made the generated SDK and frontend facade permit invalid no-account requests, so `GET /api/v1/folders` needs a dedicated required account-id parameter while email list/search filters remain optional.
 
 ## Errors Encountered
 
@@ -858,6 +897,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - T21 passed on 2026-04-30: dedup report/stats fallback succeeds without enhanced dedup, empty schedule body uses defaults, invalid schedules return 400, typed OpenAPI schedule schema is generated, and full gates pass.
 - T22 passed on 2026-04-30: admin soft-delete cleanup accepts empty body with 30-day default, rejects invalid retention values with 400, updates OpenAPI to optional requestBody, and full gates pass.
 - T23 passed on 2026-04-30: SSE frontend logs are statically guarded against token/full-URL output, heartbeat timeout and reconnect paths close stale EventSource instances, proxy-safe SSE headers are tested, and full backend/frontend/generated/diff gates pass.
+- T24 passed on 2026-04-30: search filters no longer request folders without `account_id`, listFolders generated contracts require account id, typed searches synchronize URL/current empty state, and frontend/backend/OpenAPI/generated/diff gates pass.
 
 ## Deferred Decisions
 

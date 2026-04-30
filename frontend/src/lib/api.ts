@@ -533,7 +533,11 @@ class ApiClient {
     }
   }
 
-  async getFolders(accountId?: number): Promise<ApiResponse<Folder[]>> {
+  async getFolders(accountId: number): Promise<ApiResponse<Folder[]>> {
+    if (!Number.isFinite(accountId) || accountId <= 0) {
+      throw new Error('accountId is required to list folders');
+    }
+
     return this.request(this.generatedEndpoint(getListFoldersUrl({ account_id: accountId })));
   }
 

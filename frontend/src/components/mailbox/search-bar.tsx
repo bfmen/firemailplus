@@ -55,6 +55,9 @@ export function SearchBar({
     setLocalQuery('');
     setSearchQuery('');
     setIsExpanded(false);
+    if (onSearch) {
+      onSearch('');
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

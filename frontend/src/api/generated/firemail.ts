@@ -4180,7 +4180,7 @@ export type listFoldersResponseError = (listFoldersResponse401) & {
 
 export type listFoldersResponse = (listFoldersResponseSuccess | listFoldersResponseError)
 
-export const getListFoldersUrl = (params?: ListFoldersParams,) => {
+export const getListFoldersUrl = (params: ListFoldersParams,) => {
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
@@ -4195,7 +4195,7 @@ export const getListFoldersUrl = (params?: ListFoldersParams,) => {
   return stringifiedParams.length > 0 ? `/api/v1/folders?${stringifiedParams}` : `/api/v1/folders`
 }
 
-export const listFolders = async (params?: ListFoldersParams, options?: RequestInit): Promise<listFoldersResponse> => {
+export const listFolders = async (params: ListFoldersParams, options?: RequestInit): Promise<listFoldersResponse> => {
 
   const res = await fetch(getListFoldersUrl(params),
   {

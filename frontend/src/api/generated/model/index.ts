@@ -65,6 +65,7 @@ export * from './oAuthTokenResponse';
 export * from './oAuthTokenSuccessResponse';
 export * from './pageQueryParameter';
 export * from './pageSizeQueryParameter';
+export * from './requiredAccountIdQueryParameter';
 export * from './scheduleDeduplicationRequest';
 export * from './scheduleDeduplicationRequestFrequency';
 export * from './scheduleDeduplicationRequestOptions';
