@@ -58,7 +58,7 @@ func (h *AttachmentHandler) RegisterRoutes(router *gin.RouterGroup) {
 	{
 		// 获取邮件的所有附件
 		emails.GET("/:id/attachments", h.GetEmailAttachments)
-		
+
 		// 下载邮件的所有附件
 		emails.POST("/:id/attachments/download", h.DownloadEmailAttachments)
 	}
@@ -67,7 +67,7 @@ func (h *AttachmentHandler) RegisterRoutes(router *gin.RouterGroup) {
 // DownloadAttachment 下载附件
 func (h *AttachmentHandler) DownloadAttachment(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	
+
 	// 获取附件ID
 	attachmentID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -115,7 +115,7 @@ func (h *AttachmentHandler) DownloadAttachment(c *gin.Context) {
 // PreviewAttachment 预览附件
 func (h *AttachmentHandler) PreviewAttachment(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	
+
 	// 获取附件ID
 	attachmentID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -126,8 +126,20 @@ func (h *AttachmentHandler) PreviewAttachment(c *gin.Context) {
 	// 获取预览
 	preview, err := h.attachmentService.PreviewAttachment(c.Request.Context(), uint(attachmentID), userID)
 	if err != nil {
+		if services.IsAttachmentPreviewUnsupported(err) {
+			c.JSON(http.StatusUnsupportedMediaType, ErrorResponse{
+				Error:   http.StatusText(http.StatusUnsupportedMediaType),
+				Message: err.Error(),
+				Code:    services.AttachmentPreviewUnsupportedCode,
+			})
+			return
+		}
 		log.Printf("Failed to get attachment preview: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get preview"})
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   http.StatusText(http.StatusInternalServerError),
+			Message: "Failed to get preview",
+			Code:    services.AttachmentPreviewFailedCode,
+		})
 		return
 	}
 
@@ -163,7 +175,7 @@ func (h *AttachmentHandler) GetDownloadProgress(c *gin.Context) {
 // ForceDownloadAttachment 强制重新下载附件
 func (h *AttachmentHandler) ForceDownloadAttachment(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	
+
 	// 获取附件ID
 	attachmentID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -187,7 +199,7 @@ func (h *AttachmentHandler) ForceDownloadAttachment(c *gin.Context) {
 // GetEmailAttachments 获取邮件的所有附件
 func (h *AttachmentHandler) GetEmailAttachments(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	
+
 	// 获取邮件ID
 	emailID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -212,7 +224,7 @@ func (h *AttachmentHandler) GetEmailAttachments(c *gin.Context) {
 // DownloadEmailAttachments 下载邮件的所有附件
 func (h *AttachmentHandler) DownloadEmailAttachments(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	
+
 	// 获取邮件ID
 	emailID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -235,13 +247,13 @@ func (h *AttachmentHandler) DownloadEmailAttachments(c *gin.Context) {
 
 // AttachmentInfo 附件信息
 type AttachmentInfo struct {
-	ID          uint   `json:"id"`
-	Filename    string `json:"filename"`
-	ContentType string `json:"content_type"`
-	Size        int64  `json:"size"`
-	Disposition string `json:"disposition"`
-	IsDownloaded bool  `json:"is_downloaded"`
-	IsInline    bool   `json:"is_inline"`
+	ID           uint   `json:"id"`
+	Filename     string `json:"filename"`
+	ContentType  string `json:"content_type"`
+	Size         int64  `json:"size"`
+	Disposition  string `json:"disposition"`
+	IsDownloaded bool   `json:"is_downloaded"`
+	IsInline     bool   `json:"is_inline"`
 }
 
 // getAttachmentInfo 获取附件信息
@@ -284,13 +296,13 @@ func (h *AttachmentHandler) getAttachmentInfo(c *gin.Context, attachmentID uint,
 	}
 
 	return &AttachmentInfo{
-		ID:          attachment.ID,
-		Filename:    attachment.Filename,
-		ContentType: attachment.ContentType,
-		Size:        attachment.Size,
-		Disposition: attachment.Disposition,
+		ID:           attachment.ID,
+		Filename:     attachment.Filename,
+		ContentType:  attachment.ContentType,
+		Size:         attachment.Size,
+		Disposition:  attachment.Disposition,
 		IsDownloaded: attachment.IsDownloaded,
-		IsInline:    attachment.IsInline,
+		IsInline:     attachment.IsInline,
 	}, nil
 }
 
@@ -310,13 +322,13 @@ func (h *AttachmentHandler) getEmailAttachmentsList(c *gin.Context, emailID uint
 	var result []AttachmentInfo
 	for _, attachment := range attachments {
 		result = append(result, AttachmentInfo{
-			ID:          attachment.ID,
-			Filename:    attachment.Filename,
-			ContentType: attachment.ContentType,
-			Size:        attachment.Size,
-			Disposition: attachment.Disposition,
+			ID:           attachment.ID,
+			Filename:     attachment.Filename,
+			ContentType:  attachment.ContentType,
+			Size:         attachment.Size,
+			Disposition:  attachment.Disposition,
 			IsDownloaded: attachment.IsDownloaded,
-			IsInline:    attachment.IsInline,
+			IsInline:     attachment.IsInline,
 		})
 	}
 
@@ -345,13 +357,13 @@ func (h *AttachmentHandler) setDownloadHeaders(c *gin.Context, info *AttachmentI
 
 	// 处理文件名中的特殊字符
 	safeFilename := h.sanitizeFilename(filename)
-	
+
 	// 设置下载头
 	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, safeFilename))
-	
+
 	// 设置缓存控制
 	c.Header("Cache-Control", "private, max-age=3600")
-	
+
 	// 设置其他安全头
 	c.Header("X-Content-Type-Options", "nosniff")
 }
@@ -362,7 +374,7 @@ func (h *AttachmentHandler) sanitizeFilename(filename string) string {
 	safe := strings.ReplaceAll(filename, "/", "_")
 	safe = strings.ReplaceAll(safe, "\\", "_")
 	safe = strings.ReplaceAll(safe, "..", "_")
-	
+
 	// 限制长度
 	if len(safe) > 200 {
 		ext := filepath.Ext(safe)
@@ -372,7 +384,7 @@ func (h *AttachmentHandler) sanitizeFilename(filename string) string {
 		}
 		safe = name + ext
 	}
-	
+
 	return safe
 }
 
@@ -410,7 +422,7 @@ func (h *AttachmentHandler) UploadAttachment(c *gin.Context) {
 
 	// 创建临时附件记录（用于邮件发送）
 	attachment := &models.Attachment{
-		EmailID:      nil,    // 临时上传的附件，暂不关联邮件
+		EmailID:      nil,     // 临时上传的附件，暂不关联邮件
 		UserID:       &userID, // 设置用户ID用于权限检查
 		Filename:     header.Filename,
 		ContentType:  header.Header.Get("Content-Type"),

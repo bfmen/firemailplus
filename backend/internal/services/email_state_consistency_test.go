@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"testing"
@@ -22,9 +23,12 @@ type fakeIMAPClient struct {
 	markReadCalls   [][]uint32
 	markUnreadCalls [][]uint32
 	moveCalls       []fakeMoveCall
+	deleteCalls     [][]uint32
+	statusFolders   []string
 	markReadErr     error
 	markUnreadErr   error
 	moveErr         error
+	deleteErr       error
 }
 
 type fakeMoveCall struct {
@@ -64,7 +68,10 @@ func (c *fakeIMAPClient) MarkAsUnread(_ context.Context, uids []uint32) error {
 	c.markUnreadCalls = append(c.markUnreadCalls, append([]uint32(nil), uids...))
 	return c.markUnreadErr
 }
-func (c *fakeIMAPClient) DeleteEmails(context.Context, []uint32) error { return nil }
+func (c *fakeIMAPClient) DeleteEmails(_ context.Context, uids []uint32) error {
+	c.deleteCalls = append(c.deleteCalls, append([]uint32(nil), uids...))
+	return c.deleteErr
+}
 func (c *fakeIMAPClient) MoveEmails(_ context.Context, uids []uint32, targetFolder string) error {
 	c.moveCalls = append(c.moveCalls, fakeMoveCall{
 		UIDs:         append([]uint32(nil), uids...),
@@ -76,8 +83,9 @@ func (c *fakeIMAPClient) CopyEmails(context.Context, []uint32, string) error { r
 func (c *fakeIMAPClient) SearchEmails(context.Context, *providers.SearchCriteria) ([]uint32, error) {
 	return nil, nil
 }
-func (c *fakeIMAPClient) GetFolderStatus(context.Context, string) (*providers.FolderStatus, error) {
-	return nil, nil
+func (c *fakeIMAPClient) GetFolderStatus(_ context.Context, folderName string) (*providers.FolderStatus, error) {
+	c.statusFolders = append(c.statusFolders, folderName)
+	return &providers.FolderStatus{Name: folderName, UIDValidity: 1, UIDNext: 1}, nil
 }
 func (c *fakeIMAPClient) GetNewEmails(context.Context, string, uint32) ([]*providers.EmailMessage, error) {
 	return nil, nil
@@ -90,12 +98,15 @@ func (c *fakeIMAPClient) GetAttachment(context.Context, string, uint32, string) 
 }
 
 type fakeEmailProvider struct {
-	imap          *fakeIMAPClient
-	connectCalls  int
-	disconnects   int
-	connectErr    error
-	displayName   string
-	supportedAuth []string
+	imap           *fakeIMAPClient
+	connectCalls   int
+	disconnects    int
+	connectErr     error
+	displayName    string
+	supportedAuth  []string
+	tokenCallback  providers.TokenUpdateCallback
+	tokenOnConnect string
+	callbackCalled bool
 }
 
 func (p *fakeEmailProvider) GetName() string        { return "custom" }
@@ -107,8 +118,15 @@ func (p *fakeEmailProvider) GetSupportedAuthMethods() []string {
 	return p.supportedAuth
 }
 func (p *fakeEmailProvider) GetProviderInfo() map[string]interface{} { return map[string]interface{}{} }
-func (p *fakeEmailProvider) Connect(context.Context, *models.EmailAccount) error {
+func (p *fakeEmailProvider) Connect(ctx context.Context, account *models.EmailAccount) error {
 	p.connectCalls++
+	if p.tokenOnConnect != "" && p.tokenCallback != nil {
+		account.OAuth2Token = p.tokenOnConnect
+		p.callbackCalled = true
+		if err := p.tokenCallback(ctx, account); err != nil {
+			return err
+		}
+	}
 	return p.connectErr
 }
 func (p *fakeEmailProvider) Disconnect() error {
@@ -131,6 +149,9 @@ func (p *fakeEmailProvider) SendEmail(context.Context, *models.EmailAccount, *pr
 }
 func (p *fakeEmailProvider) SyncEmails(context.Context, *models.EmailAccount, string, uint32) ([]*providers.EmailMessage, error) {
 	return nil, nil
+}
+func (p *fakeEmailProvider) SetTokenUpdateCallback(callback providers.TokenUpdateCallback) {
+	p.tokenCallback = callback
 }
 
 type emailStateServiceTestEnv struct {
@@ -460,6 +481,23 @@ func TestDeleteUnreadEmailPublishesFolderAndUnreadDelta(t *testing.T) {
 	require.Equal(t, -1, *data.UnreadDelta)
 }
 
+func TestDeleteEmailRemoteFailureDoesNotMarkLocalDeleted(t *testing.T) {
+	env := setupEmailStateServiceTestEnv(t)
+	ctx := context.Background()
+
+	env.provider.imap.deleteErr = errors.New("remote delete failed")
+	email := env.createEmail(t, env.inbox, 6101, "delete-remote-fails", false, false)
+
+	err := env.service.DeleteEmail(ctx, env.user.ID, email.ID)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "remote delete failed")
+
+	var stored models.Email
+	require.NoError(t, env.db.First(&stored, email.ID).Error)
+	require.False(t, stored.IsDeleted)
+	require.Nil(t, findEventByType(env.publisher.events, sse.EventEmailDeleted))
+}
+
 func TestMoveEmailPublishesStructuredMoveEvent(t *testing.T) {
 	env := setupEmailStateServiceTestEnv(t)
 	ctx := context.Background()
@@ -483,4 +521,83 @@ func TestMoveEmailPublishesStructuredMoveEvent(t *testing.T) {
 	require.Equal(t, env.inbox.ID, *data.SourceFolderID)
 	require.Equal(t, env.work.ID, data.TargetFolderID)
 	require.False(t, data.IsRead)
+}
+
+func TestMoveEmailRefreshesOAuthTokenAndUsesFullFolderPath(t *testing.T) {
+	env := setupEmailStateServiceTestEnv(t)
+	ctx := context.Background()
+
+	env.provider.tokenOnConnect = "refreshed-token"
+	require.NoError(t, env.db.Model(env.account).Updates(map[string]interface{}{
+		"auth_method":  "oauth2",
+		"oauth2_token": "old-token",
+	}).Error)
+
+	nested := &models.Folder{
+		AccountID:    env.account.ID,
+		Name:         "Reports",
+		DisplayName:  "Reports",
+		Type:         models.FolderTypeCustom,
+		ParentID:     &env.work.ID,
+		Path:         "Projects/Reports",
+		Delimiter:    "/",
+		IsSelectable: true,
+		IsSubscribed: true,
+	}
+	require.NoError(t, env.db.Create(nested).Error)
+	email := env.createEmail(t, env.inbox, 7101, "move-nested", true, false)
+
+	require.NoError(t, env.service.MoveEmail(ctx, env.user.ID, email.ID, nested.ID))
+
+	require.True(t, env.provider.callbackCalled)
+	require.Len(t, env.provider.imap.moveCalls, 1)
+	require.Equal(t, "INBOX", env.provider.imap.selectedFolders[0])
+	require.Equal(t, "Projects/Reports", env.provider.imap.moveCalls[0].TargetFolder)
+
+	var rawToken string
+	require.NoError(t, env.db.Raw("SELECT oauth2_token FROM email_accounts WHERE id = ?", env.account.ID).Scan(&rawToken).Error)
+	require.NotEqual(t, "old-token", rawToken)
+}
+
+func TestSyncSpecificFolderUsesFullPathForNestedFolders(t *testing.T) {
+	env := setupEmailStateServiceTestEnv(t)
+	ctx := context.Background()
+
+	wrong := &models.Folder{
+		AccountID:    env.account.ID,
+		Name:         "Reports",
+		DisplayName:  "Wrong Reports",
+		Type:         models.FolderTypeCustom,
+		Path:         "Archive/Reports",
+		Delimiter:    "/",
+		IsSelectable: true,
+		IsSubscribed: true,
+	}
+	require.NoError(t, env.db.Create(wrong).Error)
+
+	target := &models.Folder{
+		AccountID:    env.account.ID,
+		Name:         "Reports",
+		DisplayName:  "Project Reports",
+		Type:         models.FolderTypeCustom,
+		ParentID:     &env.work.ID,
+		Path:         "Projects/Reports",
+		Delimiter:    "/",
+		IsSelectable: true,
+		IsSubscribed: true,
+	}
+	require.NoError(t, env.db.Create(target).Error)
+
+	env.service.syncService = NewSyncService(
+		env.db,
+		env.service.providerFactory,
+		nil,
+		NewDeduplicatorFactory(env.db),
+		NewLocalFileStorage(nil),
+		nil,
+	)
+
+	require.NoError(t, env.service.SyncSpecificFolder(ctx, env.user.ID, target.ID))
+	require.Contains(t, env.provider.imap.statusFolders, "Projects/Reports")
+	require.NotContains(t, env.provider.imap.statusFolders, "Archive/Reports")
 }

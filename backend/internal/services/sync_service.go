@@ -569,14 +569,13 @@ func (s *SyncService) invalidateEmailListCache(userID uint) {
 		return
 	}
 
-	// 获取所有缓存键
 	keys := s.cacheManager.EmailListCache().Keys()
+	prefix := emailListCachePrefix(userID)
 
-	// 删除与该用户相关的缓存
-	// 由于我们使用MD5哈希，这里简单地清除所有缓存
-	// 在实际应用中可以通过在缓存键中包含用户ID前缀来优化
 	for _, key := range keys {
-		s.cacheManager.EmailListCache().Delete(key)
+		if strings.HasPrefix(key, prefix) {
+			s.cacheManager.EmailListCache().Delete(key)
+		}
 	}
 
 	log.Printf("Invalidated email list cache for user %d", userID)

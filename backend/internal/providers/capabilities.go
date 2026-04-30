@@ -279,7 +279,7 @@ func (d *StandardCapabilityDetector) addWarnings(config *OptimalConfig, capabili
 	}
 
 	// 基本认证弃用警告
-// 去中心化微软个人域名判断逻辑，避免重复定义
+	// 去中心化微软个人域名判断逻辑，避免重复定义
 	if config.AuthMethod == "password" {
 		domain := extractDomainFromEmail(account.Email)
 		if isMicrosoftPersonalDomain(domain) {
@@ -313,9 +313,65 @@ func (d *StandardCapabilityDetector) testIMAPConnection(ctx context.Context, acc
 
 // testSMTPConnection 测试SMTP连接
 func (d *StandardCapabilityDetector) testSMTPConnection(ctx context.Context, account *models.EmailAccount) (bool, error) {
-	// 这里需要实现SMTP连接测试
-	// 暂时返回true，实际实现中应该测试SMTP连接
-	return true, nil
+	if account.SMTPHost == "" || account.SMTPPort == 0 {
+		return false, fmt.Errorf("SMTP server is not configured")
+	}
+
+	var provider EmailProvider
+	if d.providerFactory != nil {
+		var err error
+		provider, err = d.providerFactory.CreateProviderForAccount(account)
+		if err != nil {
+			return false, fmt.Errorf("failed to create provider: %w", err)
+		}
+	} else {
+		provider = d.provider
+	}
+
+	if provider == nil {
+		return false, fmt.Errorf("SMTP provider is not configured")
+	}
+
+	smtpClient := provider.SMTPClient()
+	if smtpClient == nil {
+		return false, fmt.Errorf("SMTP client not available")
+	}
+
+	smtpConfig := SMTPClientConfig{
+		Host:     account.SMTPHost,
+		Port:     account.SMTPPort,
+		Security: account.SMTPSecurity,
+		Username: account.Username,
+	}
+
+	switch account.AuthMethod {
+	case "password":
+		smtpConfig.Password = account.Password
+	case "oauth2":
+		tokenData, err := account.GetOAuth2Token()
+		if err != nil {
+			return false, fmt.Errorf("failed to get OAuth2 token: %w", err)
+		}
+		if tokenData == nil || tokenData.AccessToken == "" {
+			return false, fmt.Errorf("OAuth2 token is not configured")
+		}
+		smtpConfig.OAuth2Token = &OAuth2Token{
+			AccessToken:  tokenData.AccessToken,
+			RefreshToken: tokenData.RefreshToken,
+			TokenType:    tokenData.TokenType,
+			Expiry:       tokenData.Expiry,
+			Scope:        tokenData.Scope,
+		}
+	default:
+		return false, fmt.Errorf("unsupported SMTP auth method: %s", account.AuthMethod)
+	}
+
+	if err := smtpClient.Connect(ctx, smtpConfig); err != nil {
+		return false, err
+	}
+	defer smtpClient.Disconnect()
+
+	return smtpClient.IsConnected(), nil
 }
 
 // testOAuth2Auth 测试OAuth2认证

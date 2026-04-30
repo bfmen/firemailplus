@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -61,24 +62,44 @@ type AttachmentPreview struct {
 	Thumbnail    []byte `json:"thumbnail,omitempty"`
 	Text         string `json:"text,omitempty"`
 	Error        string `json:"error,omitempty"`
+	Code         string `json:"code,omitempty"`
+}
+
+const (
+	AttachmentPreviewUnsupportedCode = "ATTACHMENT_PREVIEW_UNSUPPORTED"
+	AttachmentPreviewFailedCode      = "ATTACHMENT_PREVIEW_FAILED"
+)
+
+type AttachmentPreviewError struct {
+	Code    string
+	Message string
+}
+
+func (e *AttachmentPreviewError) Error() string {
+	return e.Message
+}
+
+func IsAttachmentPreviewUnsupported(err error) bool {
+	var previewErr *AttachmentPreviewError
+	return errors.As(err, &previewErr) && previewErr.Code == AttachmentPreviewUnsupportedCode
 }
 
 // DownloadProgress 下载进度
 type DownloadProgress struct {
-	AttachmentID uint      `json:"attachment_id"`
-	Status       string    `json:"status"` // "pending", "downloading", "completed", "failed"
-	Progress     float64   `json:"progress"` // 0.0 - 1.0
-	BytesTotal   int64     `json:"bytes_total"`
-	BytesLoaded  int64     `json:"bytes_loaded"`
-	StartTime    time.Time `json:"start_time"`
+	AttachmentID uint       `json:"attachment_id"`
+	Status       string     `json:"status"`   // "pending", "downloading", "completed", "failed"
+	Progress     float64    `json:"progress"` // 0.0 - 1.0
+	BytesTotal   int64      `json:"bytes_total"`
+	BytesLoaded  int64      `json:"bytes_loaded"`
+	StartTime    time.Time  `json:"start_time"`
 	EndTime      *time.Time `json:"end_time,omitempty"`
-	Error        string    `json:"error,omitempty"`
+	Error        string     `json:"error,omitempty"`
 }
 
 // NewAttachmentService 创建附件服务
 func NewAttachmentService(db *gorm.DB, storage AttachmentStorage, providerFactory ProviderFactory) AttachmentDownloader {
 	maxConcurrent := 5 // 默认最大并发下载数
-	
+
 	return &AttachmentService{
 		db:                     db,
 		storage:                storage,
@@ -125,11 +146,11 @@ func (s *AttachmentService) DownloadAttachment(ctx context.Context, attachmentID
 
 	// 执行下载
 	err = s.downloadAttachmentContent(ctx, attachment, progress)
-	
+
 	// 更新最终状态
 	endTime := time.Now()
 	progress.EndTime = &endTime
-	
+
 	if err != nil {
 		progress.Status = "failed"
 		progress.Error = err.Error()
@@ -223,17 +244,32 @@ func (s *AttachmentService) PreviewAttachment(ctx context.Context, attachmentID 
 		Type:         s.getPreviewType(attachment.ContentType),
 	}
 
+	if preview.Type == "unknown" {
+		preview.Code = AttachmentPreviewUnsupportedCode
+		preview.Error = fmt.Sprintf("preview is not supported for content type %q", attachment.ContentType)
+		return preview, &AttachmentPreviewError{Code: AttachmentPreviewUnsupportedCode, Message: preview.Error}
+	}
+
 	// 如果附件未下载，先下载
 	if !attachment.IsDownloaded || !s.storage.Exists(ctx, attachment) {
 		if err := s.DownloadAttachment(ctx, attachmentID, userID); err != nil {
-			preview.Error = fmt.Sprintf("Failed to download attachment: %v", err)
-			return preview, nil
+			preview.Code = AttachmentPreviewFailedCode
+			preview.Error = fmt.Sprintf("failed to download attachment: %v", err)
+			return preview, &AttachmentPreviewError{Code: AttachmentPreviewFailedCode, Message: preview.Error}
 		}
 	}
 
 	// 生成预览内容
 	if err := s.generatePreviewContent(ctx, attachment, preview); err != nil {
-		preview.Error = fmt.Sprintf("Failed to generate preview: %v", err)
+		var previewErr *AttachmentPreviewError
+		if errors.As(err, &previewErr) {
+			preview.Code = previewErr.Code
+			preview.Error = previewErr.Message
+			return preview, err
+		}
+		preview.Code = AttachmentPreviewFailedCode
+		preview.Error = fmt.Sprintf("failed to generate preview: %v", err)
+		return preview, &AttachmentPreviewError{Code: AttachmentPreviewFailedCode, Message: preview.Error}
 	}
 
 	return preview, nil
@@ -336,8 +372,8 @@ func (s *AttachmentService) downloadAttachmentContent(ctx context.Context, attac
 
 	// 更新数据库（只更新必要字段，避免触发器递归）
 	return s.db.WithContext(ctx).Model(attachment).Updates(map[string]interface{}{
-		"file_path":      attachment.StoragePath,
-		"is_downloaded":  attachment.IsDownloaded,
+		"file_path":     attachment.StoragePath,
+		"is_downloaded": attachment.IsDownloaded,
 	}).Error
 }
 
@@ -427,7 +463,8 @@ func (s *AttachmentService) generatePreviewContent(ctx context.Context, attachme
 	case "pdf":
 		return s.generatePDFPreview(content, preview)
 	default:
-		return nil // 不支持的类型
+		message := fmt.Sprintf("preview is not supported for type %q", preview.Type)
+		return &AttachmentPreviewError{Code: AttachmentPreviewUnsupportedCode, Message: message}
 	}
 }
 
@@ -435,7 +472,10 @@ func (s *AttachmentService) generatePreviewContent(ctx context.Context, attachme
 func (s *AttachmentService) generateImagePreview(content io.Reader, preview *AttachmentPreview) error {
 	// 暂时简单实现：读取前1KB作为预览
 	buffer := make([]byte, 1024)
-	n, _ := content.Read(buffer)
+	n, err := content.Read(buffer)
+	if err != nil && err != io.EOF {
+		return err
+	}
 	preview.Content = buffer[:n]
 	return nil
 }
@@ -444,16 +484,18 @@ func (s *AttachmentService) generateImagePreview(content io.Reader, preview *Att
 func (s *AttachmentService) generateTextPreview(content io.Reader, preview *AttachmentPreview) error {
 	// 读取前1KB文本内容
 	buffer := make([]byte, 1024)
-	n, _ := content.Read(buffer)
+	n, err := content.Read(buffer)
+	if err != nil && err != io.EOF {
+		return err
+	}
 	preview.Text = string(buffer[:n])
 	return nil
 }
 
 // generatePDFPreview 生成PDF预览
 func (s *AttachmentService) generatePDFPreview(content io.Reader, preview *AttachmentPreview) error {
-	// PDF预览需要专门的库，暂时返回文件信息
-	preview.Text = "PDF document preview not implemented"
-	return nil
+	message := "PDF preview is not supported by the current backend"
+	return &AttachmentPreviewError{Code: AttachmentPreviewUnsupportedCode, Message: message}
 }
 
 // progressReader 带进度跟踪的Reader

@@ -3,7 +3,9 @@ package services
 import (
 	"context"
 	"crypto/md5"
+	"crypto/sha256"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -64,7 +66,7 @@ func NewLocalFileStorage(config *AttachmentStorageConfig) AttachmentStorage {
 		config = &AttachmentStorageConfig{
 			BaseDir:      "attachments",
 			MaxFileSize:  100 * 1024 * 1024, // 100MB
-			CompressText: true,
+			CompressText: false,
 			CreateDirs:   true,
 			ChecksumType: "md5",
 		}
@@ -104,8 +106,11 @@ func (s *LocalFileStorage) Store(ctx context.Context, attachment *models.Attachm
 		os.Remove(tempPath) // 清理临时文件
 	}()
 
-	// 复制数据并计算校验和
-	hasher := md5.New()
+	// 复制数据并计算校验和。当前存储层不压缩文件，CompressText 仅作为未来兼容开关保留。
+	hasher, err := s.newChecksum()
+	if err != nil {
+		return err
+	}
 	multiWriter := io.MultiWriter(tempFile, hasher)
 	
 	written, err := io.Copy(multiWriter, data)
@@ -143,7 +148,7 @@ func (s *LocalFileStorage) Store(ctx context.Context, attachment *models.Attachm
 	// 更新附件存储信息
 	attachment.StoragePath = storagePath
 	attachment.IsDownloaded = true
-	// 注意：Checksum字段暂时不在模型中，可以在需要时添加到数据库
+	// Checksum is reported by GetStorageInfo; the current attachments model has no persisted checksum field.
 
 	return nil
 }
@@ -295,12 +300,26 @@ func (s *LocalFileStorage) calculateChecksum(filePath string) (string, error) {
 	}
 	defer file.Close()
 
-	hasher := md5.New()
+	hasher, err := s.newChecksum()
+	if err != nil {
+		return "", err
+	}
 	if _, err := io.Copy(hasher, file); err != nil {
 		return "", err
 	}
 
 	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
+}
+
+func (s *LocalFileStorage) newChecksum() (hash.Hash, error) {
+	switch strings.ToLower(strings.TrimSpace(s.config.ChecksumType)) {
+	case "", "md5":
+		return md5.New(), nil
+	case "sha256":
+		return sha256.New(), nil
+	default:
+		return nil, fmt.Errorf("unsupported attachment checksum type: %s", s.config.ChecksumType)
+	}
 }
 
 // AttachmentStorageError 附件存储错误

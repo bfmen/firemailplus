@@ -1664,31 +1664,33 @@ func (s *EmailServiceImpl) DeleteEmail(ctx context.Context, userID, emailID uint
 		// 获取邮件提供商
 		provider, err := s.providerFactory.CreateProviderForAccount(&email.Account)
 		if err != nil {
-			log.Printf("Warning: failed to create provider for email deletion: %v", err)
-		} else {
-			// 连接到IMAP服务器
-			if err := provider.Connect(ctx, &email.Account); err != nil {
-				log.Printf("Warning: failed to connect to IMAP for email deletion: %v", err)
-			} else {
-				defer provider.Disconnect()
-
-				// 获取IMAP客户端
-				imapClient := provider.IMAPClient()
-				if imapClient != nil {
-					// 选择文件夹
-					if _, err := imapClient.SelectFolder(ctx, email.Folder.Path); err != nil {
-						log.Printf("Warning: failed to select folder for email deletion: %v", err)
-					} else {
-						// 删除邮件
-						if err := imapClient.DeleteEmails(ctx, []uint32{email.UID}); err != nil {
-							log.Printf("Warning: failed to delete email from IMAP server: %v", err)
-						} else {
-							log.Printf("Successfully deleted email %d (UID: %d) from IMAP server", emailID, email.UID)
-						}
-					}
-				}
-			}
+			return fmt.Errorf("failed to create provider for email deletion: %w", err)
 		}
+
+		s.setupProviderTokenCallback(provider)
+
+		// 连接到IMAP服务器
+		if err := provider.Connect(ctx, &email.Account); err != nil {
+			return fmt.Errorf("failed to connect to IMAP for email deletion: %w", err)
+		}
+		defer provider.Disconnect()
+
+		// 获取IMAP客户端
+		imapClient := provider.IMAPClient()
+		if imapClient == nil {
+			return fmt.Errorf("IMAP client not available")
+		}
+
+		// 选择文件夹
+		if _, err := imapClient.SelectFolder(ctx, email.Folder.GetFullPath()); err != nil {
+			return fmt.Errorf("failed to select folder for email deletion: %w", err)
+		}
+
+		// 删除邮件
+		if err := imapClient.DeleteEmails(ctx, []uint32{email.UID}); err != nil {
+			return fmt.Errorf("failed to delete email from IMAP server: %w", err)
+		}
+		log.Printf("Successfully deleted email %d (UID: %d) from IMAP server", emailID, email.UID)
 	}
 
 	// 标记为删除（软删除）
@@ -1864,10 +1866,12 @@ func (s *EmailServiceImpl) MoveEmail(ctx context.Context, userID, emailID uint, 
 	}
 
 	// 建立IMAP连接
-	provider, err := s.providerFactory.CreateProvider(account.Provider)
+	provider, err := s.providerFactory.CreateProviderForAccount(&account)
 	if err != nil {
 		return fmt.Errorf("failed to create provider: %w", err)
 	}
+
+	s.setupProviderTokenCallback(provider)
 
 	if err := provider.Connect(ctx, &account); err != nil {
 		return fmt.Errorf("failed to connect to IMAP server: %w", err)
@@ -1882,13 +1886,13 @@ func (s *EmailServiceImpl) MoveEmail(ctx context.Context, userID, emailID uint, 
 	// 在IMAP服务器上移动邮件
 	if email.UID > 0 && sourceFolder != nil {
 		// 先选择源文件夹
-		if _, err := imapClient.SelectFolder(ctx, sourceFolder.Path); err != nil {
+		if _, err := imapClient.SelectFolder(ctx, sourceFolder.GetFullPath()); err != nil {
 			return fmt.Errorf("failed to select source folder: %w", err)
 		}
 
 		// 移动邮件到目标文件夹
 		uids := []uint32{uint32(email.UID)}
-		if err := imapClient.MoveEmails(ctx, uids, targetFolder.Path); err != nil {
+		if err := imapClient.MoveEmails(ctx, uids, targetFolder.GetFullPath()); err != nil {
 			return fmt.Errorf("failed to move email on server: %w", err)
 		}
 	}
@@ -2521,84 +2525,86 @@ func parseSearchQueryTokens(input string) parsedSearchQuery {
 
 // SearchEmails 搜索邮件
 func (s *EmailServiceImpl) SearchEmails(ctx context.Context, userID uint, req *SearchEmailsRequest) (*GetEmailsResponse, error) {
+	searchReq := *req
+
 	// 构建基础查询
 	query := s.db.WithContext(ctx).Model(&models.Email{}).
 		Joins("JOIN email_accounts ON emails.account_id = email_accounts.id").
 		Where("email_accounts.user_id = ?", userID).
 		Where("emails.is_deleted = ?", false)
 
-	parsedQuery := parseSearchQueryTokens(req.Query)
+	parsedQuery := parseSearchQueryTokens(searchReq.Query)
 	if parsedQuery.HasTokens {
 		hasParsedValue := parsedQuery.FreeText != "" || parsedQuery.From != "" || parsedQuery.To != "" || parsedQuery.Subject != "" || parsedQuery.Body != ""
 		if hasParsedValue {
-			if req.From == "" {
-				req.From = parsedQuery.From
+			if searchReq.From == "" {
+				searchReq.From = parsedQuery.From
 			}
-			if req.To == "" {
-				req.To = parsedQuery.To
+			if searchReq.To == "" {
+				searchReq.To = parsedQuery.To
 			}
-			if req.Subject == "" {
-				req.Subject = parsedQuery.Subject
+			if searchReq.Subject == "" {
+				searchReq.Subject = parsedQuery.Subject
 			}
-			if req.Body == "" {
-				req.Body = parsedQuery.Body
+			if searchReq.Body == "" {
+				searchReq.Body = parsedQuery.Body
 			}
-			req.Query = parsedQuery.FreeText
+			searchReq.Query = parsedQuery.FreeText
 		}
 	}
 
 	// 应用过滤条件
-	if req.AccountID != nil {
-		query = query.Where("emails.account_id = ?", *req.AccountID)
+	if searchReq.AccountID != nil {
+		query = query.Where("emails.account_id = ?", *searchReq.AccountID)
 	}
 
-	if req.FolderID != nil {
-		query = query.Where("emails.folder_id = ?", *req.FolderID)
+	if searchReq.FolderID != nil {
+		query = query.Where("emails.folder_id = ?", *searchReq.FolderID)
 	}
 
-	if req.IsRead != nil {
-		query = query.Where("emails.is_read = ?", *req.IsRead)
+	if searchReq.IsRead != nil {
+		query = query.Where("emails.is_read = ?", *searchReq.IsRead)
 	}
 
-	if req.IsStarred != nil {
-		query = query.Where("emails.is_starred = ?", *req.IsStarred)
+	if searchReq.IsStarred != nil {
+		query = query.Where("emails.is_starred = ?", *searchReq.IsStarred)
 	}
 
-	if req.HasAttachment != nil {
-		query = query.Where("emails.has_attachment = ?", *req.HasAttachment)
+	if searchReq.HasAttachment != nil {
+		query = query.Where("emails.has_attachment = ?", *searchReq.HasAttachment)
 	}
 
 	// 应用搜索条件
-	if req.Query != "" {
-		searchTerm := "%" + req.Query + "%"
+	if searchReq.Query != "" {
+		searchTerm := "%" + searchReq.Query + "%"
 		query = query.Where("(emails.subject LIKE ? OR emails.text_body LIKE ? OR emails.html_body LIKE ? OR emails.from_address LIKE ? OR emails.to_addresses LIKE ?)",
 			searchTerm, searchTerm, searchTerm, searchTerm, searchTerm)
 	}
 
-	if req.Subject != "" {
-		query = query.Where("emails.subject LIKE ?", "%"+req.Subject+"%")
+	if searchReq.Subject != "" {
+		query = query.Where("emails.subject LIKE ?", "%"+searchReq.Subject+"%")
 	}
 
-	if req.From != "" {
-		query = query.Where("emails.from_address LIKE ?", "%"+req.From+"%")
+	if searchReq.From != "" {
+		query = query.Where("emails.from_address LIKE ?", "%"+searchReq.From+"%")
 	}
 
-	if req.To != "" {
-		query = query.Where("emails.to_addresses LIKE ?", "%"+req.To+"%")
+	if searchReq.To != "" {
+		query = query.Where("emails.to_addresses LIKE ?", "%"+searchReq.To+"%")
 	}
 
-	if req.Body != "" {
-		bodyTerm := "%" + req.Body + "%"
+	if searchReq.Body != "" {
+		bodyTerm := "%" + searchReq.Body + "%"
 		query = query.Where("(emails.text_body LIKE ? OR emails.html_body LIKE ?)", bodyTerm, bodyTerm)
 	}
 
 	// 时间范围过滤
-	if req.Since != nil {
-		query = query.Where("emails.date >= ?", *req.Since)
+	if searchReq.Since != nil {
+		query = query.Where("emails.date >= ?", *searchReq.Since)
 	}
 
-	if req.Before != nil {
-		query = query.Where("emails.date <= ?", *req.Before)
+	if searchReq.Before != nil {
+		query = query.Where("emails.date <= ?", *searchReq.Before)
 	}
 
 	// 计算总数
@@ -2608,11 +2614,11 @@ func (s *EmailServiceImpl) SearchEmails(ctx context.Context, userID uint, req *S
 	}
 
 	// 应用分页
-	page := req.Page
+	page := searchReq.Page
 	if page < 1 {
 		page = 1
 	}
-	pageSize := req.PageSize
+	pageSize := searchReq.PageSize
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
@@ -2648,8 +2654,12 @@ func (s *EmailServiceImpl) generateEmailListCacheKey(userID uint, req *GetEmails
 	reqBytes, _ := json.Marshal(req)
 
 	// 生成MD5哈希
-	hash := md5.Sum([]byte(fmt.Sprintf("emails:%d:%s", userID, string(reqBytes))))
-	return hex.EncodeToString(hash[:])
+	hash := md5.Sum([]byte(fmt.Sprintf("%d:%s", userID, string(reqBytes))))
+	return emailListCachePrefix(userID) + hex.EncodeToString(hash[:])
+}
+
+func emailListCachePrefix(userID uint) string {
+	return fmt.Sprintf("emails:user:%d:", userID)
 }
 
 // updateUnreadCounters 更新账户/文件夹的未读计数并清理相关缓存
@@ -2696,14 +2706,13 @@ func (s *EmailServiceImpl) updateUnreadCounters(ctx context.Context, userID, acc
 
 // invalidateEmailListCache 使邮件列表缓存失效
 func (s *EmailServiceImpl) invalidateEmailListCache(userID uint) {
-	// 获取所有缓存键
 	keys := s.cacheManager.EmailListCache().Keys()
+	prefix := emailListCachePrefix(userID)
 
-	// 删除与该用户相关的缓存
-	// 由于我们使用MD5哈希，这里简单地清除所有缓存
-	// 在实际应用中可以通过在缓存键中包含用户ID前缀来优化
 	for _, key := range keys {
-		s.cacheManager.EmailListCache().Delete(key)
+		if strings.HasPrefix(key, prefix) {
+			s.cacheManager.EmailListCache().Delete(key)
+		}
 	}
 
 	log.Printf("Invalidated email list cache for user %d", userID)
@@ -2726,12 +2735,7 @@ func (s *EmailServiceImpl) ReplyEmail(ctx context.Context, userID, emailID uint,
 	// 构建回复邮件
 	replySubject := req.Subject
 	if replySubject == "" {
-		replySubject = "Re: " + originalEmail.Subject
-		if !strings.HasPrefix(strings.ToLower(originalEmail.Subject), "re:") {
-			replySubject = "Re: " + originalEmail.Subject
-		} else {
-			replySubject = originalEmail.Subject
-		}
+		replySubject = replySubjectFor(originalEmail.Subject)
 	}
 
 	// 设置收件人（如果未指定，则回复给原发件人）
@@ -2804,11 +2808,7 @@ func (s *EmailServiceImpl) ReplyAllEmail(ctx context.Context, userID, emailID ui
 	// 构建回复邮件主题
 	replySubject := req.Subject
 	if replySubject == "" {
-		if !strings.HasPrefix(strings.ToLower(originalEmail.Subject), "re:") {
-			replySubject = "Re: " + originalEmail.Subject
-		} else {
-			replySubject = originalEmail.Subject
-		}
+		replySubject = replySubjectFor(originalEmail.Subject)
 	}
 
 	// 获取所有收件人（排除自己的邮箱地址）
@@ -3046,7 +3046,7 @@ func (s *EmailServiceImpl) SyncSpecificFolder(ctx context.Context, userID, folde
 
 	// 委托给同步服务
 	if s.syncService != nil {
-		if err := s.syncService.SyncFolder(ctx, account.ID, folder.Name); err != nil {
+		if err := s.syncService.SyncFolder(ctx, account.ID, folder.GetFullPath()); err != nil {
 			return fmt.Errorf("failed to sync folder: %w", err)
 		}
 	} else {
@@ -3130,6 +3130,14 @@ func convertToEmailAddressPointers(addresses []models.EmailAddress) []*models.Em
 type QuotedContent struct {
 	TextBody string
 	HTMLBody string
+}
+
+func replySubjectFor(subject string) string {
+	trimmed := strings.TrimSpace(subject)
+	if strings.HasPrefix(strings.ToLower(trimmed), "re:") {
+		return subject
+	}
+	return "Re: " + subject
 }
 
 // buildQuotedContent 构建引用内容（用于回复）
@@ -3221,10 +3229,12 @@ func (s *EmailServiceImpl) findOrCreateArchiveFolder(ctx context.Context, accoun
 	}
 
 	// 建立IMAP连接
-	provider, err := s.providerFactory.CreateProvider(account.Provider)
+	provider, err := s.providerFactory.CreateProviderForAccount(&account)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create provider: %w", err)
 	}
+
+	s.setupProviderTokenCallback(provider)
 
 	if err := provider.Connect(ctx, &account); err != nil {
 		return nil, fmt.Errorf("failed to connect to IMAP server: %w", err)
