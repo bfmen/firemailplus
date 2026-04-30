@@ -207,6 +207,52 @@ func TestCreateEmailGroupFirstCustomReturnsFreshDefaultState(t *testing.T) {
 	require.False(t, freshOldDefault.IsDefault)
 }
 
+func TestUpdateEmailGroupAllowsUserDefaultGroupRename(t *testing.T) {
+	env := setupEmailGroupServiceTestEnv(t)
+	ctx := context.Background()
+
+	created, err := env.service.CreateEmailGroup(ctx, env.user.ID, &CreateEmailGroupRequest{
+		Name: "工作",
+	})
+	require.NoError(t, err)
+	require.True(t, created.IsDefault)
+
+	newName := "重要工作"
+	updated, err := env.service.UpdateEmailGroup(ctx, env.user.ID, created.ID, &UpdateEmailGroupRequest{
+		Name: &newName,
+	})
+	require.NoError(t, err)
+	require.True(t, updated.IsDefault)
+	require.Equal(t, newName, updated.Name)
+
+	var fresh models.EmailGroup
+	require.NoError(t, env.db.First(&fresh, created.ID).Error)
+	require.True(t, fresh.IsDefault)
+	require.Equal(t, newName, fresh.Name)
+}
+
+func TestUpdateEmailGroupRejectsSystemGroupRename(t *testing.T) {
+	env := setupEmailGroupServiceTestEnv(t)
+	ctx := context.Background()
+
+	systemKey := models.EmailGroupSystemKeyDefaultPlaceholder
+	systemGroup := &models.EmailGroup{
+		UserID:    env.user.ID,
+		Name:      "未分组",
+		SortOrder: 0,
+		IsDefault: true,
+		SystemKey: &systemKey,
+	}
+	require.NoError(t, env.db.Create(systemGroup).Error)
+
+	newName := "系统组新名称"
+	_, err := env.service.UpdateEmailGroup(ctx, env.user.ID, systemGroup.ID, &UpdateEmailGroupRequest{
+		Name: &newName,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "系统分组不可编辑")
+}
+
 func TestSetDefaultEmailGroupMovesOldDefaultAndUngroupedAccounts(t *testing.T) {
 	env := setupEmailGroupServiceTestEnv(t)
 	ctx := context.Background()

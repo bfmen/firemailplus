@@ -52,7 +52,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 | T15 | done | Final migration cleanup and full strict validation. | Backend tests, frontend type-check, OpenAPI lint/codegen diff, route drift, and SDK drift all pass. |
 | T16 | done | Land E2E investigation baseline and append the E2E remediation task chain. | Investigation doc is tracked; task file consistency is fixed; full baseline gates pass; commit created. |
 | T17 | done | Fix auth refresh so every valid token can be rolled forward. | Fresh token refresh returns success; invalid/expired tokens still fail; OpenAPI/generated artifacts and tests pass. |
-| T18 | pending | Fix email-group default semantics so user default groups can be renamed safely. | First custom group can be updated; system groups remain protected; default delete protection remains tested. |
+| T18 | done | Fix email-group default semantics so user default groups can be renamed safely. | First custom group can be updated; system groups remain protected; default delete protection remains tested. |
 | T19 | pending | Convert batch account mark-read to an asynchronous, observable job. | API returns accepted job data quickly; job status/SSE progress are test-covered; no 60s request timeout. |
 | T20 | pending | Stabilize single-email read-state remote sync errors and frontend rewrite behavior. | Remote/provider failures return typed errors, not opaque 500; direct backend and frontend rewrite behavior match. |
 | T21 | pending | Fix dedup stats/report fallback and schedule defaults/validation. | Stats/report no longer 500 without enhanced dedup; empty schedule uses defaults; invalid schedule returns 400. |
@@ -574,6 +574,36 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
   - `make check-api-generated`: passed after E014; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
   - `git diff --check`: passed.
 
+### T18 - Editable User Default Email Groups
+
+- ID: T18
+- Status: done
+- Goal: Allow user-owned default email groups to be renamed while keeping system groups and default deletion protected.
+- Code To Inspect: `backend/internal/services/email_service.go`, `backend/internal/services/email_group_test.go`, `backend/internal/models/email_group.go`, `backend/internal/handlers/email_groups.go`.
+- Allowed Changes: email group service/tests, task file.
+- Implementation Notes:
+  - Removed the `IsDefault` edit guard from `UpdateEmailGroup`; `IsSystemGroup` remains the edit boundary.
+  - Added a regression test proving the first custom group, which becomes default, can be renamed immediately.
+  - Added a regression test proving system-managed groups remain non-editable.
+  - `DeleteEmailGroup` still rejects default groups, so rename and delete semantics are intentionally different.
+- Self Review Checklist:
+  - [x] First custom default group can be renamed.
+  - [x] System group rename is rejected.
+  - [x] Default group delete protection remains unchanged.
+  - [x] Full backend/frontend/generated gates pass.
+- Acceptance Commands:
+  - `cd backend && go test ./internal/services -run 'Test.*EmailGroup'`
+  - `cd backend && go test ./...`
+  - `cd frontend && pnpm type-check`
+  - `make check-api-generated`
+  - `git diff --check`
+- Exit Result: passed on 2026-04-30.
+  - `cd backend && go test ./internal/services -run 'Test.*EmailGroup'`: passed after E015 path correction.
+  - `cd backend && go test ./...`: passed.
+  - `cd frontend && pnpm type-check`: passed.
+  - `make check-api-generated`: passed; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
+  - `git diff --check`: passed.
+
 ## Findings
 
 - F001: Phase 1 stable route boundary should start from real registrations in `backend/cmd/firemail/main.go`, plus attachment routes registered through `AttachmentHandler.RegisterRoutes(api)`.
@@ -596,6 +626,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 ## Errors Encountered
 
 - E014: T17 `make check-api-generated` failed after adding a non-wire auth refresh OpenAPI description because Orval regenerated only the `refreshToken` JSDoc. Different strategy applied: remove the description-only OpenAPI edit, keep the behavioral fix in code/tests, and rerun the generated check.
+- E015: T18 initial focused format/test command was launched from `backend/` while still using repository-root file paths, so `gofmt` reported `lstat backend/internal/services/...: no such file or directory`. Different strategy applied: rerun the same command with paths relative to `backend/`.
 - E001: Initial Redocly lint failed because `SuccessResponse.data` used `nullable` without a sibling `type`, and `/health` lacked an explicit security declaration. Different strategy applied: define `data` as a nullable object and add `security: []` to the public health operation.
 - E002: Initial Orval config generated schema files under a directory named `firemail.schemas.ts`, causing poor `from './.'` imports. Different strategy applied: use `frontend/src/api/generated/model` as the schema directory.
 - E003: `pnpm type-check` failed because `orval.config.ts` used unsupported `output.prettier`. Different strategy applied: remove that field and rely on Orval's generated output formatting.

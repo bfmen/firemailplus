@@ -876,9 +876,6 @@ func (s *EmailServiceImpl) UpdateEmailGroup(ctx context.Context, userID, groupID
 	if group.IsSystemGroup() {
 		return nil, fmt.Errorf("系统分组不可编辑")
 	}
-	if group.IsDefault {
-		return nil, fmt.Errorf("默认分组不可编辑")
-	}
 
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
