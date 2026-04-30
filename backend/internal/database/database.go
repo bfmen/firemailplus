@@ -205,15 +205,9 @@ func createDefaultAdmin(db *gorm.DB) error {
 		return nil
 	}
 
-	// 从环境变量获取管理员账号信息
-	adminUsername := os.Getenv("ADMIN_USERNAME")
-	adminPassword := os.Getenv("ADMIN_PASSWORD")
-
-	if adminUsername == "" {
-		adminUsername = "admin"
-	}
-	if adminPassword == "" {
-		adminPassword = "admin123"
+	adminUsername, adminPassword, err := adminCredentialsFromEnv()
+	if err != nil {
+		return err
 	}
 
 	// 创建管理员用户
@@ -235,15 +229,9 @@ func createDefaultAdmin(db *gorm.DB) error {
 
 // syncAdminPassword 同步管理员密码与环境变量
 func syncAdminPassword(db *gorm.DB) error {
-	// 从环境变量获取管理员账号信息
-	adminUsername := os.Getenv("ADMIN_USERNAME")
-	adminPassword := os.Getenv("ADMIN_PASSWORD")
-
-	if adminUsername == "" {
-		adminUsername = "admin"
-	}
-	if adminPassword == "" {
-		adminPassword = "admin123"
+	adminUsername, adminPassword, err := adminCredentialsFromEnv()
+	if err != nil {
+		return err
 	}
 
 	// 查找管理员用户
@@ -324,6 +312,37 @@ func syncAdminPassword(db *gorm.DB) error {
 	}
 
 	return nil
+}
+
+func adminCredentialsFromEnv() (string, string, error) {
+	adminUsername := os.Getenv("ADMIN_USERNAME")
+	adminPassword := os.Getenv("ADMIN_PASSWORD")
+
+	if adminUsername == "" {
+		adminUsername = "admin"
+	}
+
+	if isProductionEnv() {
+		if adminPassword == "" {
+			return "", "", fmt.Errorf("ADMIN_PASSWORD must be set in production")
+		}
+		if adminPassword == "admin123" {
+			return "", "", fmt.Errorf("ADMIN_PASSWORD uses a weak default value in production")
+		}
+	} else if adminPassword == "" {
+		adminPassword = "admin123"
+	}
+
+	return adminUsername, adminPassword, nil
+}
+
+func isProductionEnv() bool {
+	for _, key := range []string{"ENV", "GO_ENV", "GIN_MODE"} {
+		if os.Getenv(key) == "production" {
+			return true
+		}
+	}
+	return false
 }
 
 type emailAccountCredentialRow struct {

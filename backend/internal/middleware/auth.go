@@ -47,7 +47,7 @@ func AuthRequiredWithService(authService AuthService) gin.HandlerFunc {
 
 		// 从header中获取token
 		authHeader := c.GetHeader("Authorization")
-		log.Printf("AuthRequiredWithService: Authorization header: %s", authHeader[:min(50, len(authHeader))])
+		log.Printf("AuthRequiredWithService: Authorization header present: %t, length: %d", authHeader != "", len(authHeader))
 
 		if authHeader == "" {
 			log.Printf("AuthRequiredWithService: No authorization header")
@@ -60,7 +60,7 @@ func AuthRequiredWithService(authService AuthService) gin.HandlerFunc {
 
 		// 提取token
 		token := auth.ExtractTokenFromHeader(authHeader)
-		log.Printf("AuthRequiredWithService: Extracted token: %s", token[:min(50, len(token))])
+		log.Printf("AuthRequiredWithService: Extracted token present: %t, length: %d", token != "", len(token))
 
 		if token == "" {
 			log.Printf("AuthRequiredWithService: Failed to extract token")
@@ -74,12 +74,7 @@ func AuthRequiredWithService(authService AuthService) gin.HandlerFunc {
 		// 验证token
 		user, err := authService.ValidateToken(token)
 		if err != nil {
-			// 添加调试日志
-			tokenPreview := token
-			if len(token) > 50 {
-				tokenPreview = token[:50] + "..."
-			}
-			log.Printf("Token validation failed: %v, token: %s", err, tokenPreview)
+			log.Printf("Token validation failed: %v", err)
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": "Invalid or expired token",
 			})
