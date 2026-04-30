@@ -1,0 +1,55 @@
+name: Feature Request
+description: Propose a FireMailPlus feature or improvement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or operator problem should this solve?
+      placeholder: Describe the workflow pain or missing capability.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution
+      description: What should FireMailPlus do?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Backend API
+        - Frontend UI
+        - OpenAPI/SDK generation
+        - Docker/Deployment
+        - Mail sync/providers
+        - SSE/realtime
+        - Database/migrations
+        - Security/auth
+        - E2E/testing
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility And Migration Notes
+      description: Describe expected impact on `/api/v1`, OpenAPI, database migrations, Docker deployment, or existing users.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other approaches did you consider?
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Reporter Checklist
+      options:
+        - label: This request does not include secrets or private mailbox content.
+          required: true
+        - label: I searched existing issues and did not find a duplicate.
+          required: true

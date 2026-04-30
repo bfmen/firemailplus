@@ -4,6 +4,7 @@ const dockerfile = readFileSync('Dockerfile', 'utf8');
 const buildScript = readFileSync('scripts/docker-build.sh', 'utf8');
 const compose = readFileSync('docker-compose.yml', 'utf8');
 const workflow = readFileSync('.github/workflows/docker-build.yml', 'utf8');
+const ciWorkflow = readFileSync('.github/workflows/ci.yml', 'utf8');
 const readme = readFileSync('README.md', 'utf8');
 
 const checks = [
@@ -50,6 +51,30 @@ const checks = [
       /node_base_image:/.test(workflow) &&
       /GO_BASE_IMAGE=\$\{\{ env\.GO_BASE_IMAGE \}\}/.test(workflow) &&
       /NODE_BASE_IMAGE=\$\{\{ env\.NODE_BASE_IMAGE \}\}/.test(workflow),
+  },
+  {
+    name: 'GitHub workflow builds amd64 and arm64 in parallel matrix jobs',
+    ok:
+      /platform: linux\/amd64/.test(workflow) &&
+      /platform: linux\/arm64/.test(workflow) &&
+      /fail-fast: false/.test(workflow) &&
+      /Build \$\{\{ matrix\.platform \}\}/.test(workflow),
+  },
+  {
+    name: 'GitHub workflow publishes a multi-arch manifest from per-arch digests',
+    ok:
+      /push-by-digest=true/.test(workflow) &&
+      /pattern: digest-\*/.test(workflow) &&
+      /docker buildx imagetools create -t "\$tag" \$digests/.test(workflow),
+  },
+  {
+    name: 'CI workflow gates backend, frontend, OpenAPI generation, and Docker config',
+    ok:
+      /name: CI/.test(ciWorkflow) &&
+      /go test \.\/\.\.\./.test(ciWorkflow) &&
+      /pnpm type-check/.test(ciWorkflow) &&
+      /make check-api-generated/.test(ciWorkflow) &&
+      /node scripts\/check-docker-build-config\.mjs/.test(ciWorkflow),
   },
   {
     name: 'README documents base image override usage',

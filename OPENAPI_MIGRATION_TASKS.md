@@ -64,6 +64,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 | T27 | done | Rebuild, deploy a clean test instance, import the two Outlook accounts, and rerun full E2E. | Backend curl and frontend jshook pass with no unexpected 4xx/5xx/timeout/leaks. |
 | T28 | done | Record final E2E acceptance and cleanup. | Task file records final commands, commits, risks, and clean generated/worktree status. |
 | T29 | done | Rerun Docker production E2E after Docker registry access recovered. | Current HEAD Docker image builds; isolated Docker container passes backend harness and jshook frontend smoke with sanitized artifacts. |
+| T30 | done | Add GitHub CI gates, parallel multi-arch Docker publishing, and issue/PR templates. | CI validates backend/frontend/OpenAPI/generated/Docker config; Docker publish builds amd64 and arm64 concurrently; templates are tracked and pushed. |
 
 ## Per-Task Log
 
@@ -1020,6 +1021,44 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
   - Artifact secret scan: passed after redacting SSE query-token URL/queryString values; raw HAR was removed and only sanitized artifacts remain under `/tmp/firemailplus-e2e-artifacts-docker`.
   - Final repository gates after updating this task file: `cd backend && go test ./...` passed; `cd frontend && pnpm type-check` passed; `make check-api-generated` passed with the accepted F011 Redocly warnings; `git diff --exit-code -- backend/internal/api/generated frontend/src/api/generated` passed; `git diff --check` passed.
 
+### T30 - GitHub CI And Contribution Templates
+
+- ID: T30
+- Status: done
+- Goal: Add GitHub Actions CI gates for backend/frontend/OpenAPI/generated/Docker config checks, ensure Docker publishing builds `linux/amd64` and `linux/arm64` in concurrent jobs before creating a multi-arch manifest, and add issue/PR templates.
+- Code To Inspect: `.github/workflows/docker-build.yml`, `scripts/check-docker-build-config.mjs`, `Makefile`, `frontend/package.json`, `backend/go.mod`, `.github/ISSUE_TEMPLATE/**`, `.github/pull_request_template.md`, git remote state.
+- Allowed Changes: GitHub workflow files, GitHub issue/PR templates, Docker config static-check script, this task file. Do not change application behavior or commit runtime credentials/artifacts.
+- Implementation Notes:
+  - Added `.github/workflows/ci.yml` with separate backend test, frontend type-check, OpenAPI/generated drift, Docker build config, and aggregate CI gate jobs.
+  - Updated `.github/workflows/docker-build.yml` to run on pushes to `main`, version tags, and manual dispatch; the build job uses a non-fail-fast matrix with separate `linux/amd64` and `linux/arm64` jobs, uploads digest artifacts, and the manifest job creates multi-arch tags from those digests.
+  - Kept Docker Hub base-image override inputs and build args so registry mirror workflows remain supported.
+  - Added Bug Report and Feature Request issue forms plus a repository PR template with validation, OpenAPI, deployment/E2E, and secret-safety checklists.
+  - Extended `scripts/check-docker-build-config.mjs` so CI validates the expected multi-arch publish shape and the new CI gate workflow.
+- Self Review Checklist:
+  - [x] CI workflow covers backend tests, frontend type-check, generated API drift, and Docker config checks.
+  - [x] Docker publish workflow builds amd64 and arm64 as separate matrix jobs and creates a manifest after both complete.
+  - [x] Issue and PR templates are present under GitHub standard paths.
+  - [x] No secrets or runtime artifacts are staged.
+  - [x] Changes are committed and pushed to the GitHub remote.
+- Acceptance Commands:
+  - `ruby -e 'require "yaml"; Dir[".github/workflows/*.yml", ".github/ISSUE_TEMPLATE/*.yml"].each { |f| YAML.load_file(f); puts "ok #{f}" }'`
+  - `GOBIN=/tmp/firemailplus-tools go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 && /tmp/firemailplus-tools/actionlint .github/workflows/*.yml`
+  - `node scripts/check-docker-build-config.mjs`
+  - `cd backend && go test ./...`
+  - `cd frontend && pnpm type-check`
+  - `make check-api-generated`
+  - `git diff --check`
+  - `git push origin main`
+- Exit Result: passed on 2026-04-30.
+  - YAML parse check passed for all workflow and issue-template YAML files.
+  - `actionlint` passed for all GitHub Actions workflow files.
+  - `node scripts/check-docker-build-config.mjs`: passed.
+  - `cd backend && go test ./...`: passed.
+  - `cd frontend && pnpm type-check`: passed.
+  - `make check-api-generated`: passed with the accepted F011 Redocly warnings.
+  - `git diff --check`: passed.
+  - The T30 commit contains only workflow/template/static-check/task-file changes.
+
 ## Findings
 
 - F001: Phase 1 stable route boundary should start from real registrations in `backend/cmd/firemail/main.go`, plus attachment routes registered through `AttachmentHandler.RegisterRoutes(api)`.
@@ -1050,6 +1089,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - F026: The frontend hydration guard needs a client-mounted fallback in addition to persisted auth-store rehydration, so a fresh browser state cannot remain indefinitely blocked by a missing or delayed persisted store callback.
 - F027: Runtime attachment storage and local agent state are not source artifacts. `backend/attachments/` and `.codex/` should stay ignored so clean E2E runs do not create accidental commit candidates.
 - F028: The current Docker path is now validated independently of the older `firemail-app` container. Future Docker E2E reruns should use an isolated container/tag or first prove the existing container image matches the current HEAD.
+- F029: The repository previously had Docker publish automation but no separate PR/push CI gate. The new split keeps validation fast and deterministic while Docker publishing remains focused on image distribution.
 
 ## Errors Encountered
 
@@ -1111,6 +1151,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - T27 passed on 2026-04-30: Docker build was blocked by upstream base image pulls, local production fallback was rebuilt and fixed, two Outlook accounts were imported with credentials kept out of tracked files, backend harness passed 11/11 checks, jshook passed login/mailbox/SSE/search/folder-contract checks, sanitized frontend HAR/screenshots were written under `/tmp/firemailplus-e2e-artifacts`, artifact leak scan passed, and backend/frontend/generated/diff gates pass.
 - T28 passed on 2026-04-30: final cleanup ignored `.codex/` and `backend/attachments/`, T27 commit `e43a367` was recorded, backend tests, frontend type-check, OpenAPI/codegen, generated drift, and diff checks all passed, and final residual risks/artifact locations are recorded.
 - T29 passed on 2026-04-30: Docker registry access recovered, current HEAD image `firemailplus:e2e-docker-rerun` built successfully, isolated container on `http://localhost:3200` passed health/root checks, backend harness passed 11/11 checks, jshook passed login/mailbox/120s hold/search/folder-contract checks, sanitized Docker HAR/network artifacts were written under `/tmp/firemailplus-e2e-artifacts-docker`, artifact secret scan passed after SSE query-token redaction, and final backend/frontend/generated/diff gates passed.
+- T30 passed on 2026-04-30: GitHub CI workflow, parallel multi-arch Docker publish workflow, issue templates, PR template, and Docker config static checks were added; YAML/static checks and backend/frontend/generated/diff gates passed; changes were committed for push to `origin/main`.
 
 ## Deferred Decisions
 

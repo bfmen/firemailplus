@@ -1,0 +1,93 @@
+name: Bug Report
+description: Report a reproducible FireMailPlus defect.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Provide enough detail for maintainers to reproduce and verify the issue. Do not include mailbox passwords, OAuth refresh tokens, JWTs, HAR files with secrets, or raw production logs containing credentials.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is broken?
+      placeholder: Describe the user-visible failure.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction Steps
+      description: List the exact steps or API calls that reproduce the issue.
+      placeholder: |
+        1. Start the app with ...
+        2. Log in as ...
+        3. Open ...
+        4. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What happened instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Backend API
+        - Frontend UI
+        - OpenAPI/SDK generation
+        - Docker/Deployment
+        - Mail sync/providers
+        - SSE/realtime
+        - Database/migrations
+        - Security/auth
+        - E2E/testing
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version Or Commit
+      description: Commit SHA, image tag, or branch where the issue occurs.
+      placeholder: main@abcdef0 or luofengyuan/firemailplus:latest
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Docker version, browser, provider type, and relevant non-secret configuration.
+      placeholder: |
+        OS:
+        Docker:
+        Browser:
+        Provider:
+        Deployment mode:
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized Evidence
+      description: Paste sanitized logs, curl output, screenshots, or redacted HAR observations.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Reporter Checklist
+      options:
+        - label: I removed passwords, JWTs, OAuth tokens, cookies, and raw mailbox credentials from this issue.
+          required: true
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
