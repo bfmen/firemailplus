@@ -166,6 +166,35 @@ pnpm dev
 前端服务：`http://localhost:3000`  
 后端服务：`http://localhost:8080`
 
+## 🔧 OpenAPI 开发工作流
+
+本仓库的 `/api/v1` 契约以 `openapi/firemail.yaml` 为源头。新增或调整公开 API 时，先修改 OpenAPI，再重新生成后端接口类型和前端 SDK，最后补 handler/service 适配与测试；不要手工编辑生成目录中的业务逻辑。
+
+生成物归属：
+
+- 后端生成物：`backend/internal/api/generated`
+- 前端生成物：`frontend/src/api/generated`
+- 后端 adapter：`backend/internal/api/server.go`
+- 前端兼容 facade：`frontend/src/lib/api.ts`
+
+常用命令：
+
+```bash
+# 校验 OpenAPI、路由覆盖、前端 facade 映射，并重新生成后端/前端生成物
+make check-api-generated
+
+# 仅重新生成后端和前端 OpenAPI 产物
+make generate-api
+
+# 后端全量测试
+cd backend && go test ./...
+
+# 前端类型检查
+cd frontend && pnpm type-check
+```
+
+当前 v1 为兼容优先：保留 `/api/v1`、`SuccessResponse` / `ErrorResponse` 包装、SSE `text/event-stream`、以及现有浏览器 EventSource query token 兼容路径。Redocly 对 `/api/v1/emails/draft/{id}` 与 `/api/v1/emails/{id}/...` 的 9 条 `no-ambiguous-paths` 警告是已知 v1 路径兼容风险，不影响当前生成和测试门禁。
+
 ## 🛠️ 已知BUG
 - Gmail授权登录无法使用（谷歌得先经过认证...看我啥时候有时间写隐私说明和用户说明什么的吧）
 - 部分复杂邮件解析仍然存在问题（这方面真的尽力了...例子是163某些真的不知道什么鬼）
