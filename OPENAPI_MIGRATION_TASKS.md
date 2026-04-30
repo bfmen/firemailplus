@@ -50,6 +50,19 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 | T13 | done | Resolve dead management routes: auth refresh/change-password/profile, backup, soft-delete. | Admin permission tests pass; non-admin access is denied; OpenAPI covers complete routes. |
 | T14 | done | Complete cache/search/P3 maintainability fixes. | Side-effect, cache isolation, reply subject, and HTML policy tests pass. |
 | T15 | done | Final migration cleanup and full strict validation. | Backend tests, frontend type-check, OpenAPI lint/codegen diff, route drift, and SDK drift all pass. |
+| T16 | done | Land E2E investigation baseline and append the E2E remediation task chain. | Investigation doc is tracked; task file consistency is fixed; full baseline gates pass; commit created. |
+| T17 | pending | Fix auth refresh so every valid token can be rolled forward. | Fresh token refresh returns success; invalid/expired tokens still fail; OpenAPI/generated artifacts and tests pass. |
+| T18 | pending | Fix email-group default semantics so user default groups can be renamed safely. | First custom group can be updated; system groups remain protected; default delete protection remains tested. |
+| T19 | pending | Convert batch account mark-read to an asynchronous, observable job. | API returns accepted job data quickly; job status/SSE progress are test-covered; no 60s request timeout. |
+| T20 | pending | Stabilize single-email read-state remote sync errors and frontend rewrite behavior. | Remote/provider failures return typed errors, not opaque 500; direct backend and frontend rewrite behavior match. |
+| T21 | pending | Fix dedup stats/report fallback and schedule defaults/validation. | Stats/report no longer 500 without enhanced dedup; empty schedule uses defaults; invalid schedule returns 400. |
+| T22 | pending | Make admin soft-delete cleanup usable with an empty body. | Empty body uses default retention days; OpenAPI request body is optional; focused tests pass. |
+| T23 | pending | Harden SSE heartbeat/reconnect behavior and redact frontend token logs. | 120s browser smoke receives heartbeat; console/HAR/log scans contain no token/JWT leakage. |
+| T24 | pending | Fix search page folder loading and query/empty-state behavior. | HAR has no folder request without `account_id`; search URL and empty state reflect current query. |
+| T25 | pending | Improve Docker build resilience around external base images. | Build supports mirror/base-image overrides and retry; Docker or documented fallback validation passes. |
+| T26 | pending | Add reproducible local production E2E harness and reporting. | Backend curl and frontend jshook flows produce redacted artifacts under `/tmp/firemailplus-e2e-artifacts`. |
+| T27 | pending | Rebuild, deploy a clean test instance, import the two Outlook accounts, and rerun full E2E. | Backend curl and frontend jshook pass with no unexpected 4xx/5xx/timeout/leaks. |
+| T28 | pending | Record final E2E acceptance and cleanup. | Task file records final commands, commits, risks, and clean generated/worktree status. |
 
 ## Per-Task Log
 
@@ -268,7 +281,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 ### T07 - Send, Draft, Template, And Quota Schema Repair
 
 - ID: T07
-- Status: in_progress
+- Status: done
 - Goal: Add versioned migrations to reconcile `sent_emails`, `send_queue`, `drafts`, `email_templates`, and `email_quotas`.
 - Code To Inspect: `backend/internal/models/sent_email.go`, draft/template services, migration SQL.
 - Allowed Changes: SQL migrations, GORM models, services, migration/CRUD tests.
@@ -502,6 +515,34 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
   - `cd backend && go test ./internal/database ./internal/database/migration -run 'TestSend|TestSchema|TestMigration|TestProduction'`: passed.
   - `make check-api-generated`: passed; OpenAPI route drift covers 94 routes and SDK facade drift covers 62 generated helper mappings. Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
   - `git diff --exit-code -- backend/internal/api/generated frontend/src/api/generated`: passed for tracked generated drift after regeneration.
+  - `git diff --check`: passed.
+
+### T16 - E2E Investigation Baseline And Remediation Task Chain
+
+- ID: T16
+- Status: done
+- Goal: Track the source-level E2E investigation document, correct task-file consistency, and append the full E2E remediation chain as the next canonical work items.
+- Code To Inspect: `docs/e2e-issue-investigation.md`, `OPENAPI_MIGRATION_TASKS.md`, `/tmp/firemailplus-e2e-artifacts/E2E_REPORT.md`, `/tmp/firemailplus-e2e-artifacts/backend-curl-report.json`, `/tmp/firemailplus-e2e-artifacts/frontend.har`.
+- Allowed Changes: `OPENAPI_MIGRATION_TASKS.md`, `docs/e2e-issue-investigation.md`.
+- Implementation Notes:
+  - The E2E investigation document classifies 12 findings from the previous curl/jshook run and separates confirmed defects, contract mismatches, test-data issues, and external Docker registry risk.
+  - The task index now appends T16 through T28, with one task per remediation/validation slice and a final clean E2E acceptance task.
+  - Corrected the stale per-task T07 status from `in_progress` to `done` to match the task index and acceptance history.
+  - Locked implementation defaults from planning: valid tokens roll refresh; user default groups can be renamed; batch account mark-read becomes asynchronous.
+- Self Review Checklist:
+  - [x] E2E investigation document is tracked.
+  - [x] Task file has no contradictory T07 status.
+  - [x] T16-T28 are present in the task index.
+  - [x] Full baseline gates pass before commit.
+- Acceptance Commands:
+  - `cd backend && go test ./...`
+  - `cd frontend && pnpm type-check`
+  - `make check-api-generated`
+  - `git diff --check`
+- Exit Result: passed on 2026-04-30.
+  - `cd backend && go test ./...`: passed.
+  - `cd frontend && pnpm type-check`: passed.
+  - `make check-api-generated`: passed; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
   - `git diff --check`: passed.
 
 ## Findings
