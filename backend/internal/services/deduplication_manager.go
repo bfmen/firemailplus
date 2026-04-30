@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"firemail/internal/config"
@@ -16,80 +17,80 @@ import (
 type DeduplicationManager interface {
 	// 执行账户去重
 	DeduplicateAccount(ctx context.Context, accountID uint, options *DeduplicationOptions) (*BatchDeduplicationResult, error)
-	
+
 	// 执行用户所有账户去重
 	DeduplicateUser(ctx context.Context, userID uint, options *DeduplicationOptions) (*UserDeduplicationResult, error)
-	
+
 	// 获取去重报告
 	GetDeduplicationReport(ctx context.Context, accountID uint) (*DeduplicationReport, error)
-	
+
 	// 计划去重任务
 	ScheduleDeduplication(ctx context.Context, accountID uint, schedule *DeduplicationSchedule) error
-	
+
 	// 取消计划去重任务
 	CancelScheduledDeduplication(ctx context.Context, accountID uint) error
 }
 
 // DeduplicationOptions 去重选项
 type DeduplicationOptions struct {
-	DryRun              bool     `json:"dry_run"`               // 是否为试运行
-	CrossFolder         bool     `json:"cross_folder"`          // 是否检查跨文件夹重复
-	CleanupDuplicates   bool     `json:"cleanup_duplicates"`    // 是否清理重复邮件
-	RebuildIndex        bool     `json:"rebuild_index"`         // 是否重建索引
-	BatchSize           int      `json:"batch_size"`            // 批处理大小
-	MaxProcessingTime   time.Duration `json:"max_processing_time"` // 最大处理时间
-	IncludeFolders      []string `json:"include_folders"`       // 包含的文件夹
-	ExcludeFolders      []string `json:"exclude_folders"`       // 排除的文件夹
-	NotifyOnCompletion  bool     `json:"notify_on_completion"`  // 完成时通知
+	DryRun             bool          `json:"dry_run"`              // 是否为试运行
+	CrossFolder        bool          `json:"cross_folder"`         // 是否检查跨文件夹重复
+	CleanupDuplicates  bool          `json:"cleanup_duplicates"`   // 是否清理重复邮件
+	RebuildIndex       bool          `json:"rebuild_index"`        // 是否重建索引
+	BatchSize          int           `json:"batch_size"`           // 批处理大小
+	MaxProcessingTime  time.Duration `json:"max_processing_time"`  // 最大处理时间
+	IncludeFolders     []string      `json:"include_folders"`      // 包含的文件夹
+	ExcludeFolders     []string      `json:"exclude_folders"`      // 排除的文件夹
+	NotifyOnCompletion bool          `json:"notify_on_completion"` // 完成时通知
 }
 
 // DeduplicationSchedule 去重计划
 type DeduplicationSchedule struct {
-	Enabled     bool                 `json:"enabled"`
-	Frequency   string               `json:"frequency"` // daily, weekly, monthly
-	Time        string               `json:"time"`      // HH:MM format
-	Options     *DeduplicationOptions `json:"options"`
-	NextRun     time.Time            `json:"next_run"`
-	LastRun     *time.Time           `json:"last_run,omitempty"`
+	Enabled   bool                  `json:"enabled"`
+	Frequency string                `json:"frequency"` // daily, weekly, monthly
+	Time      string                `json:"time"`      // HH:MM format
+	Options   *DeduplicationOptions `json:"options"`
+	NextRun   time.Time             `json:"next_run"`
+	LastRun   *time.Time            `json:"last_run,omitempty"`
 }
 
 // UserDeduplicationResult 用户去重结果
 type UserDeduplicationResult struct {
-	UserID          uint                        `json:"user_id"`
+	UserID          uint                               `json:"user_id"`
 	AccountResults  map[uint]*BatchDeduplicationResult `json:"account_results"`
-	TotalProcessed  int                         `json:"total_processed"`
-	TotalDuplicates int                         `json:"total_duplicates"`
-	TotalErrors     int                         `json:"total_errors"`
-	ProcessingTime  time.Duration               `json:"processing_time"`
-	StartTime       time.Time                   `json:"start_time"`
-	EndTime         time.Time                   `json:"end_time"`
+	TotalProcessed  int                                `json:"total_processed"`
+	TotalDuplicates int                                `json:"total_duplicates"`
+	TotalErrors     int                                `json:"total_errors"`
+	ProcessingTime  time.Duration                      `json:"processing_time"`
+	StartTime       time.Time                          `json:"start_time"`
+	EndTime         time.Time                          `json:"end_time"`
 }
 
 // DeduplicationReport 去重报告
 type DeduplicationReport struct {
-	AccountID       uint                `json:"account_id"`
-	Stats           *DeduplicationStats `json:"stats"`
-	RecentActivity  []*DeduplicationActivity `json:"recent_activity"`
+	AccountID       uint                           `json:"account_id"`
+	Stats           *DeduplicationStats            `json:"stats"`
+	RecentActivity  []*DeduplicationActivity       `json:"recent_activity"`
 	Recommendations []*DeduplicationRecommendation `json:"recommendations"`
-	GeneratedAt     time.Time           `json:"generated_at"`
+	GeneratedAt     time.Time                      `json:"generated_at"`
 }
 
 // DeduplicationActivity 去重活动记录
 type DeduplicationActivity struct {
-	ID          uint      `json:"id"`
-	AccountID   uint      `json:"account_id"`
-	Type        string    `json:"type"` // check, cleanup, rebuild_index
-	Status      string    `json:"status"` // running, completed, failed
-	StartTime   time.Time `json:"start_time"`
-	EndTime     *time.Time `json:"end_time,omitempty"`
-	Result      string    `json:"result,omitempty"`
-	ErrorMessage string   `json:"error_message,omitempty"`
+	ID           uint       `json:"id"`
+	AccountID    uint       `json:"account_id"`
+	Type         string     `json:"type"`   // check, cleanup, rebuild_index
+	Status       string     `json:"status"` // running, completed, failed
+	StartTime    time.Time  `json:"start_time"`
+	EndTime      *time.Time `json:"end_time,omitempty"`
+	Result       string     `json:"result,omitempty"`
+	ErrorMessage string     `json:"error_message,omitempty"`
 }
 
 // DeduplicationRecommendation 去重建议
 type DeduplicationRecommendation struct {
-	Type        string `json:"type"`        // cleanup, rebuild_index, schedule
-	Priority    string `json:"priority"`    // high, medium, low
+	Type        string `json:"type"`     // cleanup, rebuild_index, schedule
+	Priority    string `json:"priority"` // high, medium, low
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Action      string `json:"action"`
@@ -100,6 +101,8 @@ type StandardDeduplicationManager struct {
 	db                  *gorm.DB
 	deduplicatorFactory DeduplicatorFactory
 	eventTrigger        EventTrigger
+	schedules           map[uint]*DeduplicationSchedule
+	schedulesMu         sync.RWMutex
 }
 
 // NewDeduplicationManager 创建去重管理器
@@ -108,6 +111,7 @@ func NewDeduplicationManager(db *gorm.DB, deduplicatorFactory DeduplicatorFactor
 		db:                  db,
 		deduplicatorFactory: deduplicatorFactory,
 		eventTrigger:        eventTrigger,
+		schedules:           make(map[uint]*DeduplicationSchedule),
 	}
 }
 
@@ -132,10 +136,10 @@ func (m *StandardDeduplicationManager) DeduplicateAccount(ctx context.Context, a
 
 	// 发送开始通知
 	if m.eventTrigger != nil {
-		m.eventTrigger.TriggerNotification(ctx, 
-			"去重开始", 
+		m.eventTrigger.TriggerNotification(ctx,
+			"去重开始",
 			fmt.Sprintf("账户 %s 的邮件去重已开始", account.Email),
-			"info", 
+			"info",
 			account.UserID)
 	}
 
@@ -235,14 +239,14 @@ func (m *StandardDeduplicationManager) DeduplicateAccount(ctx context.Context, a
 	endTime := time.Now()
 	activity.EndTime = &endTime
 	activity.Status = "completed"
-	activity.Result = fmt.Sprintf("Processed: %d, Duplicates: %d, Errors: %d", 
+	activity.Result = fmt.Sprintf("Processed: %d, Duplicates: %d, Errors: %d",
 		result.ProcessedCount, result.DuplicateCount, result.ErrorCount)
-	
+
 	if result.ErrorCount > 0 {
 		activity.Status = "completed_with_errors"
 		activity.ErrorMessage = fmt.Sprintf("%d errors occurred", result.ErrorCount)
 	}
-	
+
 	m.db.Save(activity)
 
 	// 发送完成通知
@@ -251,7 +255,7 @@ func (m *StandardDeduplicationManager) DeduplicateAccount(ctx context.Context, a
 		if result.ErrorCount > 0 {
 			notificationType = "warning"
 		}
-		
+
 		m.eventTrigger.TriggerNotification(ctx,
 			"去重完成",
 			fmt.Sprintf("账户 %s 的邮件去重已完成。处理: %d, 重复: %d, 错误: %d",
@@ -267,7 +271,7 @@ func (m *StandardDeduplicationManager) DeduplicateAccount(ctx context.Context, a
 // DeduplicateUser 执行用户所有账户去重
 func (m *StandardDeduplicationManager) DeduplicateUser(ctx context.Context, userID uint, options *DeduplicationOptions) (*UserDeduplicationResult, error) {
 	startTime := time.Now()
-	
+
 	// 获取用户的所有账户
 	var accounts []models.EmailAccount
 	err := m.db.Where("user_id = ? AND is_active = ?", userID, true).Find(&accounts).Error
@@ -387,17 +391,63 @@ func (m *StandardDeduplicationManager) generateRecommendations(stats *Deduplicat
 
 // ScheduleDeduplication 计划去重任务
 func (m *StandardDeduplicationManager) ScheduleDeduplication(ctx context.Context, accountID uint, schedule *DeduplicationSchedule) error {
-	// 这里应该集成到任务调度系统中
-	// 暂时只记录到数据库
+	if schedule == nil {
+		return fmt.Errorf("schedule is required")
+	}
+	nextRun, err := calculateNextDeduplicationRun(time.Now(), schedule.Frequency, schedule.Time)
+	if err != nil {
+		return err
+	}
+	schedule.NextRun = nextRun
+
+	m.schedulesMu.Lock()
+	m.schedules[accountID] = schedule
+	m.schedulesMu.Unlock()
+
 	log.Printf("Scheduled deduplication for account %d: %+v", accountID, schedule)
 	return nil
 }
 
 // CancelScheduledDeduplication 取消计划去重任务
 func (m *StandardDeduplicationManager) CancelScheduledDeduplication(ctx context.Context, accountID uint) error {
-	// 这里应该从任务调度系统中移除
+	m.schedulesMu.Lock()
+	delete(m.schedules, accountID)
+	m.schedulesMu.Unlock()
+
 	log.Printf("Cancelled scheduled deduplication for account %d", accountID)
 	return nil
+}
+
+func calculateNextDeduplicationRun(now time.Time, frequency, hhmm string) (time.Time, error) {
+	var hour, minute int
+	if _, err := fmt.Sscanf(hhmm, "%02d:%02d", &hour, &minute); err != nil {
+		return time.Time{}, fmt.Errorf("invalid schedule time format")
+	}
+	if hour < 0 || hour > 23 || minute < 0 || minute > 59 {
+		return time.Time{}, fmt.Errorf("invalid schedule time")
+	}
+
+	next := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
+	if !next.After(now) {
+		next = next.Add(24 * time.Hour)
+	}
+
+	switch frequency {
+	case "daily":
+		return next, nil
+	case "weekly":
+		for next.Weekday() != now.Weekday() || !next.After(now) {
+			next = next.Add(7 * 24 * time.Hour)
+		}
+		return next, nil
+	case "monthly":
+		for !next.After(now) {
+			next = next.AddDate(0, 1, 0)
+		}
+		return next, nil
+	default:
+		return time.Time{}, fmt.Errorf("invalid schedule frequency")
+	}
 }
 
 // tryCreateEnhancedStandardDeduplicator 尝试创建增强标准去重器

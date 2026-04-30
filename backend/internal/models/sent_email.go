@@ -3,32 +3,34 @@ package models
 import (
 	"encoding/json"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // SentEmail 已发送邮件模型
 type SentEmail struct {
 	BaseModel
-	
+
 	// 基本信息
-	SendID      string `gorm:"uniqueIndex;size:100;not null" json:"send_id"`
-	AccountID   uint   `gorm:"index;not null" json:"account_id"`
-	MessageID   string `gorm:"size:255;not null" json:"message_id"`
-	
+	SendID    string `gorm:"uniqueIndex;size:100;not null" json:"send_id"`
+	AccountID uint   `gorm:"index;not null" json:"account_id"`
+	MessageID string `gorm:"size:255;not null" json:"message_id"`
+
 	// 邮件内容
-	Subject     string `gorm:"size:500;not null" json:"subject"`
-	Recipients  string `gorm:"type:text" json:"recipients"` // 逗号分隔的收件人列表
-	
+	Subject    string `gorm:"size:500;not null" json:"subject"`
+	Recipients string `gorm:"type:text" json:"recipients"` // 逗号分隔的收件人列表
+
 	// 发送信息
-	SentAt      time.Time `gorm:"index;not null" json:"sent_at"`
-	Status      string    `gorm:"size:50;not null;default:'sent'" json:"status"`
-	Size        int64     `gorm:"default:0" json:"size"`
-	
+	SentAt time.Time `gorm:"index;not null" json:"sent_at"`
+	Status string    `gorm:"size:50;not null;default:'sent'" json:"status"`
+	Size   int64     `gorm:"default:0" json:"size"`
+
 	// 错误信息
-	Error       string `gorm:"type:text" json:"error,omitempty"`
-	RetryCount  int    `gorm:"default:0" json:"retry_count"`
-	
+	Error      string `gorm:"type:text" json:"error,omitempty"`
+	RetryCount int    `gorm:"default:0" json:"retry_count"`
+
 	// 关联
-	Account     EmailAccount `gorm:"foreignKey:AccountID" json:"account,omitempty"`
+	Account EmailAccount `gorm:"foreignKey:AccountID" json:"account,omitempty"`
 }
 
 // TableName 返回表名
@@ -46,27 +48,28 @@ type EmailTemplate struct {
 	UserID      uint   `gorm:"index;not null" json:"user_id"`
 
 	// 模板内容
-	Subject     string `gorm:"size:500;not null" json:"subject"`
-	TextBody    string `gorm:"type:text" json:"text_body"`
-	HTMLBody    string `gorm:"type:text" json:"html_body"`
+	Subject  string `gorm:"size:500;not null" json:"subject"`
+	Body     string `gorm:"column:body;type:text;not null" json:"-"`
+	TextBody string `gorm:"type:text" json:"text_body"`
+	HTMLBody string `gorm:"type:text" json:"html_body"`
 
 	// 模板变量和分类
-	Variables   string `gorm:"type:text" json:"variables"` // JSON格式的变量定义
-	Category    string `gorm:"size:50" json:"category"`
-	Tags        string `gorm:"type:text" json:"tags"` // JSON格式的标签列表
+	Variables string `gorm:"type:text" json:"variables"` // JSON格式的变量定义
+	Category  string `gorm:"size:50" json:"category"`
+	Tags      string `gorm:"type:text" json:"tags"` // JSON格式的标签列表
 
 	// 状态
-	IsActive    bool   `gorm:"default:true" json:"is_active"`
-	IsDefault   bool   `gorm:"default:false" json:"is_default"`
-	IsShared    bool   `gorm:"default:false" json:"is_shared"`
-	IsBuiltIn   bool   `gorm:"default:false" json:"is_built_in"`
+	IsActive  bool `gorm:"default:true" json:"is_active"`
+	IsDefault bool `gorm:"default:false" json:"is_default"`
+	IsShared  bool `gorm:"default:false" json:"is_shared"`
+	IsBuiltIn bool `gorm:"default:false" json:"is_built_in"`
 
 	// 使用统计
-	UsageCount  int        `gorm:"default:0" json:"usage_count"`
-	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
+	UsageCount int        `gorm:"default:0" json:"usage_count"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 
 	// 关联
-	User        User `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	User User `gorm:"foreignKey:UserID" json:"user,omitempty"`
 }
 
 // TableName 返回表名
@@ -74,10 +77,23 @@ func (EmailTemplate) TableName() string {
 	return "email_templates"
 }
 
+// BeforeSave keeps the legacy NOT NULL body column compatible while the public
+// model uses text_body/html_body as the canonical template content fields.
+func (t *EmailTemplate) BeforeSave(tx *gorm.DB) error {
+	if t.Body == "" {
+		if t.TextBody != "" {
+			t.Body = t.TextBody
+		} else {
+			t.Body = t.HTMLBody
+		}
+	}
+	return nil
+}
+
 // TemplateVariable 模板变量结构
 type TemplateVariable struct {
 	Name         string      `json:"name"`
-	Type         string      `json:"type"`        // string, number, date, boolean
+	Type         string      `json:"type"` // string, number, date, boolean
 	Description  string      `json:"description"`
 	Required     bool        `json:"required"`
 	DefaultValue interface{} `json:"default_value,omitempty"`
@@ -147,75 +163,35 @@ func (t *EmailTemplate) CanDelete(userID uint) bool {
 	return t.UserID == userID && !t.IsBuiltIn
 }
 
-// EmailDraft 邮件草稿模型
-type EmailDraft struct {
-	BaseModel
-	
-	// 基本信息
-	UserID      uint   `gorm:"index;not null" json:"user_id"`
-	AccountID   uint   `gorm:"index;not null" json:"account_id"`
-	Subject     string `gorm:"size:500" json:"subject"`
-	
-	// 收件人信息
-	ToAddresses  string `gorm:"type:text" json:"to_addresses"`   // JSON格式
-	CCAddresses  string `gorm:"type:text" json:"cc_addresses"`   // JSON格式
-	BCCAddresses string `gorm:"type:text" json:"bcc_addresses"`  // JSON格式
-	ReplyTo      string `gorm:"size:255" json:"reply_to"`
-	
-	// 邮件内容
-	TextBody    string `gorm:"type:text" json:"text_body"`
-	HTMLBody    string `gorm:"type:text" json:"html_body"`
-	
-	// 附件信息
-	Attachments string `gorm:"type:text" json:"attachments"` // JSON格式的附件信息
-	
-	// 其他设置
-	Priority    string `gorm:"size:20;default:'normal'" json:"priority"`
-	Headers     string `gorm:"type:text" json:"headers"` // JSON格式
-	
-	// 状态
-	IsAutoSaved bool      `gorm:"default:false" json:"is_auto_saved"`
-	LastSavedAt time.Time `gorm:"autoUpdateTime" json:"last_saved_at"`
-	
-	// 关联
-	User        User         `gorm:"foreignKey:UserID" json:"user,omitempty"`
-	Account     EmailAccount `gorm:"foreignKey:AccountID" json:"account,omitempty"`
-}
-
-// TableName 返回表名
-func (EmailDraft) TableName() string {
-	return "email_drafts"
-}
-
 // SendQueue 发送队列模型
 type SendQueue struct {
 	BaseModel
-	
+
 	// 基本信息
-	SendID      string `gorm:"uniqueIndex;size:100;not null" json:"send_id"`
-	UserID      uint   `gorm:"index;not null" json:"user_id"`
-	AccountID   uint   `gorm:"index;not null" json:"account_id"`
-	
+	SendID    string `gorm:"uniqueIndex;size:100;not null" json:"send_id"`
+	UserID    uint   `gorm:"index;not null" json:"user_id"`
+	AccountID uint   `gorm:"index;not null" json:"account_id"`
+
 	// 邮件内容
-	EmailData   string `gorm:"type:text;not null" json:"email_data"` // JSON格式的邮件数据
-	
+	EmailData string `gorm:"type:text;not null" json:"email_data"` // JSON格式的邮件数据
+
 	// 发送设置
 	ScheduledAt *time.Time `gorm:"index" json:"scheduled_at,omitempty"` // 计划发送时间
 	Priority    int        `gorm:"default:5" json:"priority"`           // 优先级 1-10
-	
+
 	// 状态
 	Status      string `gorm:"size:50;not null;default:'pending'" json:"status"`
 	Attempts    int    `gorm:"default:0" json:"attempts"`
 	MaxAttempts int    `gorm:"default:3" json:"max_attempts"`
-	
+
 	// 错误信息
 	LastError   string     `gorm:"type:text" json:"last_error,omitempty"`
 	LastAttempt *time.Time `json:"last_attempt,omitempty"`
 	NextAttempt *time.Time `gorm:"index" json:"next_attempt,omitempty"`
-	
+
 	// 关联
-	User        User         `gorm:"foreignKey:UserID" json:"user,omitempty"`
-	Account     EmailAccount `gorm:"foreignKey:AccountID" json:"account,omitempty"`
+	User    User         `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	Account EmailAccount `gorm:"foreignKey:AccountID" json:"account,omitempty"`
 }
 
 // TableName 返回表名
@@ -226,26 +202,26 @@ func (SendQueue) TableName() string {
 // EmailQuota 邮件配额模型
 type EmailQuota struct {
 	BaseModel
-	
+
 	// 基本信息
-	UserID      uint `gorm:"uniqueIndex;not null" json:"user_id"`
-	
+	UserID uint `gorm:"uniqueIndex;not null" json:"user_id"`
+
 	// 配额设置
-	DailyLimit    int `gorm:"default:1000" json:"daily_limit"`     // 每日发送限制
-	MonthlyLimit  int `gorm:"default:30000" json:"monthly_limit"`  // 每月发送限制
+	DailyLimit          int   `gorm:"default:1000" json:"daily_limit"`               // 每日发送限制
+	MonthlyLimit        int   `gorm:"default:30000" json:"monthly_limit"`            // 每月发送限制
 	AttachmentSizeLimit int64 `gorm:"default:26214400" json:"attachment_size_limit"` // 附件大小限制(25MB)
-	
+
 	// 使用统计
 	DailyUsed     int       `gorm:"default:0" json:"daily_used"`
 	MonthlyUsed   int       `gorm:"default:0" json:"monthly_used"`
 	LastResetDate time.Time `gorm:"autoCreateTime" json:"last_reset_date"`
-	
+
 	// 状态
-	IsBlocked     bool   `gorm:"default:false" json:"is_blocked"`
-	BlockReason   string `gorm:"size:255" json:"block_reason,omitempty"`
-	
+	IsBlocked   bool   `gorm:"default:false" json:"is_blocked"`
+	BlockReason string `gorm:"size:255" json:"block_reason,omitempty"`
+
 	// 关联
-	User          User `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	User User `gorm:"foreignKey:UserID" json:"user,omitempty"`
 }
 
 // TableName 返回表名
@@ -258,15 +234,15 @@ func (q *EmailQuota) CanSendEmail() bool {
 	if q.IsBlocked {
 		return false
 	}
-	
+
 	if q.DailyUsed >= q.DailyLimit {
 		return false
 	}
-	
+
 	if q.MonthlyUsed >= q.MonthlyLimit {
 		return false
 	}
-	
+
 	return true
 }
 

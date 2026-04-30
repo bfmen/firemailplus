@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -20,42 +21,42 @@ import (
 type EmailSender interface {
 	// SendEmail 发送邮件
 	SendEmail(ctx context.Context, email *ComposedEmail, accountID uint) (*SendResult, error)
-	
+
 	// SendBulkEmails 批量发送邮件
 	SendBulkEmails(ctx context.Context, emails []*ComposedEmail, accountID uint) ([]*SendResult, error)
-	
+
 	// GetSendStatus 获取发送状态
 	GetSendStatus(ctx context.Context, sendID string) (*SendStatus, error)
-	
+
 	// ResendEmail 重新发送邮件
 	ResendEmail(ctx context.Context, sendID string) (*SendResult, error)
 }
 
 // SendResult 发送结果
 type SendResult struct {
-	SendID      string    `json:"send_id"`
-	EmailID     string    `json:"email_id"`
-	Status      string    `json:"status"` // pending, sending, sent, failed
-	Message     string    `json:"message,omitempty"`
-	SentAt      *time.Time `json:"sent_at,omitempty"`
-	Error       string    `json:"error,omitempty"`
-	RetryCount  int       `json:"retry_count"`
-	Recipients  []string  `json:"recipients"`
+	SendID     string     `json:"send_id"`
+	EmailID    string     `json:"email_id"`
+	Status     string     `json:"status"` // pending, sending, sent, failed
+	Message    string     `json:"message,omitempty"`
+	SentAt     *time.Time `json:"sent_at,omitempty"`
+	Error      string     `json:"error,omitempty"`
+	RetryCount int        `json:"retry_count"`
+	Recipients []string   `json:"recipients"`
 }
 
 // SendStatus 发送状态
 type SendStatus struct {
-	SendID       string                 `json:"send_id"`
-	EmailID      string                 `json:"email_id"`
-	Status       string                 `json:"status"`
-	Progress     float64                `json:"progress"` // 0.0 - 1.0
-	TotalRecipients int                 `json:"total_recipients"`
-	SentRecipients  int                 `json:"sent_recipients"`
-	FailedRecipients int                `json:"failed_recipients"`
-	StartTime    time.Time              `json:"start_time"`
-	EndTime      *time.Time             `json:"end_time,omitempty"`
-	Error        string                 `json:"error,omitempty"`
-	Details      map[string]interface{} `json:"details,omitempty"`
+	SendID           string                 `json:"send_id"`
+	EmailID          string                 `json:"email_id"`
+	Status           string                 `json:"status"`
+	Progress         float64                `json:"progress"` // 0.0 - 1.0
+	TotalRecipients  int                    `json:"total_recipients"`
+	SentRecipients   int                    `json:"sent_recipients"`
+	FailedRecipients int                    `json:"failed_recipients"`
+	StartTime        time.Time              `json:"start_time"`
+	EndTime          *time.Time             `json:"end_time,omitempty"`
+	Error            string                 `json:"error,omitempty"`
+	Details          map[string]interface{} `json:"details,omitempty"`
 }
 
 // StandardEmailSender 标准邮件发送器
@@ -70,23 +71,23 @@ type StandardEmailSender struct {
 
 // EmailSenderConfig 邮件发送器配置
 type EmailSenderConfig struct {
-	MaxRetries          int           `json:"max_retries"`           // 最大重试次数
-	RetryInterval       time.Duration `json:"retry_interval"`       // 重试间隔
-	MaxConcurrentSends  int           `json:"max_concurrent_sends"`  // 最大并发发送数
-	SendTimeout         time.Duration `json:"send_timeout"`         // 发送超时
-	EnableStatusTracking bool         `json:"enable_status_tracking"` // 启用状态跟踪
-	SaveSentEmails      bool          `json:"save_sent_emails"`     // 保存已发送邮件
+	MaxRetries           int           `json:"max_retries"`            // 最大重试次数
+	RetryInterval        time.Duration `json:"retry_interval"`         // 重试间隔
+	MaxConcurrentSends   int           `json:"max_concurrent_sends"`   // 最大并发发送数
+	SendTimeout          time.Duration `json:"send_timeout"`           // 发送超时
+	EnableStatusTracking bool          `json:"enable_status_tracking"` // 启用状态跟踪
+	SaveSentEmails       bool          `json:"save_sent_emails"`       // 保存已发送邮件
 }
 
 // NewStandardEmailSender 创建标准邮件发送器
 func NewStandardEmailSender(db *gorm.DB, providerFactory *providers.ProviderFactory, eventPublisher sse.EventPublisher) EmailSender {
 	config := &EmailSenderConfig{
-		MaxRetries:          3,
-		RetryInterval:       time.Minute * 5,
-		MaxConcurrentSends:  10,
-		SendTimeout:         time.Minute * 5,
+		MaxRetries:           3,
+		RetryInterval:        time.Minute * 5,
+		MaxConcurrentSends:   10,
+		SendTimeout:          time.Minute * 5,
 		EnableStatusTracking: true,
-		SaveSentEmails:      true,
+		SaveSentEmails:       true,
 	}
 
 	return &StandardEmailSender{
@@ -128,9 +129,16 @@ func (s *StandardEmailSender) SendEmail(ctx context.Context, email *ComposedEmai
 		s.setSendStatus(sendID, status)
 	}
 
+	if err := s.createSendQueueRecord(ctx, email, account, result); err != nil {
+		return nil, fmt.Errorf("failed to persist send status: %w", err)
+	}
+
 	// 异步发送邮件
+	asyncResult := *result
 	go func() {
-		if err := s.sendEmailAsync(ctx, email, account, result); err != nil {
+		sendCtx, cancel := context.WithTimeout(context.Background(), s.config.SendTimeout)
+		defer cancel()
+		if err := s.sendEmailAsync(sendCtx, email, account, &asyncResult); err != nil {
 			log.Printf("Failed to send email %s: %v", email.ID, err)
 		}
 	}()
@@ -140,15 +148,15 @@ func (s *StandardEmailSender) SendEmail(ctx context.Context, email *ComposedEmai
 
 // SendBulkEmails 批量发送邮件
 func (s *StandardEmailSender) SendBulkEmails(ctx context.Context, emails []*ComposedEmail, accountID uint) ([]*SendResult, error) {
-	var results []*SendResult
+	results := make([]*SendResult, len(emails))
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, s.config.MaxConcurrentSends)
 
-	for _, email := range emails {
+	for i, email := range emails {
 		wg.Add(1)
-		go func(e *ComposedEmail) {
+		go func(index int, e *ComposedEmail) {
 			defer wg.Done()
-			
+
 			// 获取信号量
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
@@ -163,8 +171,8 @@ func (s *StandardEmailSender) SendBulkEmails(ctx context.Context, emails []*Comp
 					Error:   err.Error(),
 				}
 			}
-			results = append(results, result)
-		}(email)
+			results[index] = result
+		}(i, email)
 	}
 
 	wg.Wait()
@@ -174,11 +182,11 @@ func (s *StandardEmailSender) SendBulkEmails(ctx context.Context, emails []*Comp
 // GetSendStatus 获取发送状态
 func (s *StandardEmailSender) GetSendStatus(ctx context.Context, sendID string) (*SendStatus, error) {
 	s.statusMutex.RLock()
-	defer s.statusMutex.RUnlock()
-
 	if status, exists := s.sendStatus[sendID]; exists {
+		s.statusMutex.RUnlock()
 		return status, nil
 	}
+	s.statusMutex.RUnlock()
 
 	// 如果内存中没有，尝试从数据库加载
 	return s.loadSendStatusFromDB(ctx, sendID)
@@ -186,14 +194,8 @@ func (s *StandardEmailSender) GetSendStatus(ctx context.Context, sendID string) 
 
 // ResendEmail 重新发送邮件
 func (s *StandardEmailSender) ResendEmail(ctx context.Context, sendID string) (*SendResult, error) {
-	// 获取原始发送记录
-	originalStatus, err := s.GetSendStatus(ctx, sendID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get original send status: %w", err)
-	}
-
 	// 从数据库加载邮件内容和账户信息
-	sentEmail, accountID, err := s.loadSentEmailWithAccountFromDB(ctx, originalStatus.EmailID)
+	sentEmail, accountID, err := s.loadSentEmailWithAccountFromDB(ctx, sendID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load sent email: %w", err)
 	}
@@ -211,6 +213,9 @@ func (s *StandardEmailSender) sendEmailAsync(ctx context.Context, email *Compose
 			status.Status = "sending"
 			status.Progress = 0.1
 		})
+	}
+	if err := s.updateSendQueueStatus(ctx, result.SendID, "sending", "", nil); err != nil {
+		log.Printf("Failed to persist sending status for %s: %v", result.SendID, err)
 	}
 
 	// 发布发送开始事件
@@ -310,6 +315,9 @@ func (s *StandardEmailSender) handleSendSuccess(ctx context.Context, result *Sen
 			status.EndTime = &now
 		})
 	}
+	if err := s.updateSendQueueStatus(ctx, result.SendID, "sent", "", &now); err != nil {
+		log.Printf("Failed to persist sent status for %s: %v", result.SendID, err)
+	}
 
 	// 保存已发送邮件
 	if s.config.SaveSentEmails {
@@ -342,6 +350,10 @@ func (s *StandardEmailSender) handleSendError(ctx context.Context, result *SendR
 			now := time.Now()
 			status.EndTime = &now
 		})
+	}
+	now := time.Now()
+	if updateErr := s.updateSendQueueStatus(ctx, result.SendID, "failed", err.Error(), &now); updateErr != nil {
+		log.Printf("Failed to persist failed status for %s: %v", result.SendID, updateErr)
 	}
 
 	// 发布发送失败事件
@@ -405,33 +417,189 @@ func (s *StandardEmailSender) updateSendStatus(sendID string, updateFunc func(*S
 
 // loadSendStatusFromDB 从数据库加载发送状态
 func (s *StandardEmailSender) loadSendStatusFromDB(ctx context.Context, sendID string) (*SendStatus, error) {
-	// 这里应该从数据库加载发送状态
-	// 暂时返回未找到错误
-	return nil, fmt.Errorf("send status not found: %s", sendID)
+	var queue models.SendQueue
+	if err := s.db.WithContext(ctx).Where("send_id = ?", sendID).First(&queue).Error; err == nil {
+		status := sendQueueToStatus(&queue)
+		s.setSendStatus(sendID, status)
+		return status, nil
+	} else if err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
+
+	var sent models.SentEmail
+	if err := s.db.WithContext(ctx).Where("send_id = ?", sendID).First(&sent).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("send status not found: %s", sendID)
+		}
+		return nil, err
+	}
+
+	recipients := splitRecipients(sent.Recipients)
+	endTime := sent.SentAt
+	status := &SendStatus{
+		SendID:          sent.SendID,
+		EmailID:         sent.MessageID,
+		Status:          sent.Status,
+		Progress:        1.0,
+		TotalRecipients: len(recipients),
+		SentRecipients:  len(recipients),
+		StartTime:       sent.CreatedAt,
+		EndTime:         &endTime,
+		Error:           sent.Error,
+		Details: map[string]interface{}{
+			"account_id": sent.AccountID,
+			"recipients": recipients,
+		},
+	}
+	s.setSendStatus(sendID, status)
+	return status, nil
 }
 
 // loadSentEmailWithAccountFromDB 从数据库加载已发送邮件和账户信息
-func (s *StandardEmailSender) loadSentEmailWithAccountFromDB(ctx context.Context, emailID string) (*ComposedEmail, uint, error) {
-	// 这里应该从数据库加载已发送邮件和账户信息
-	// 暂时返回未实现错误
-	return nil, 0, fmt.Errorf("load sent email not implemented")
+func (s *StandardEmailSender) loadSentEmailWithAccountFromDB(ctx context.Context, sendID string) (*ComposedEmail, uint, error) {
+	var queue models.SendQueue
+	if err := s.db.WithContext(ctx).Where("send_id = ?", sendID).First(&queue).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, 0, fmt.Errorf("send payload not found: %s", sendID)
+		}
+		return nil, 0, err
+	}
+
+	var email ComposedEmail
+	if err := json.Unmarshal([]byte(queue.EmailData), &email); err != nil {
+		return nil, 0, fmt.Errorf("failed to decode persisted email payload: %w", err)
+	}
+	return &email, queue.AccountID, nil
 }
 
 // saveSentEmail 保存已发送邮件
 func (s *StandardEmailSender) saveSentEmail(ctx context.Context, email *ComposedEmail, accountID uint, result *SendResult) error {
 	// 创建已发送邮件记录
 	sentEmail := &models.SentEmail{
-		SendID:      result.SendID,
-		AccountID:   accountID,
-		MessageID:   email.ID,
-		Subject:     email.Subject,
-		Recipients:  strings.Join(result.Recipients, ","),
-		SentAt:      *result.SentAt,
-		Status:      result.Status,
-		Size:        email.Size,
+		SendID:     result.SendID,
+		AccountID:  accountID,
+		MessageID:  email.ID,
+		Subject:    email.Subject,
+		Recipients: strings.Join(result.Recipients, ","),
+		SentAt:     *result.SentAt,
+		Status:     result.Status,
+		Size:       email.Size,
 	}
 
 	return s.db.WithContext(ctx).Create(sentEmail).Error
+}
+
+func (s *StandardEmailSender) createSendQueueRecord(ctx context.Context, email *ComposedEmail, account *models.EmailAccount, result *SendResult) error {
+	emailData, err := json.Marshal(email)
+	if err != nil {
+		return err
+	}
+
+	queue := &models.SendQueue{
+		SendID:      result.SendID,
+		UserID:      account.UserID,
+		AccountID:   account.ID,
+		EmailData:   string(emailData),
+		Priority:    5,
+		Status:      result.Status,
+		Attempts:    result.RetryCount,
+		MaxAttempts: s.config.MaxRetries,
+	}
+	return s.db.WithContext(ctx).Create(queue).Error
+}
+
+func (s *StandardEmailSender) updateSendQueueStatus(ctx context.Context, sendID, status, lastError string, completedAt *time.Time) error {
+	updates := map[string]interface{}{
+		"status":       status,
+		"last_attempt": time.Now(),
+	}
+	if lastError != "" {
+		updates["last_error"] = lastError
+		updates["attempts"] = gorm.Expr("attempts + 1")
+	}
+	if completedAt != nil {
+		updates["next_attempt"] = nil
+	}
+	return s.db.WithContext(ctx).Model(&models.SendQueue{}).Where("send_id = ?", sendID).Updates(updates).Error
+}
+
+func sendQueueToStatus(queue *models.SendQueue) *SendStatus {
+	var email ComposedEmail
+	_ = json.Unmarshal([]byte(queue.EmailData), &email)
+	recipients := collectComposedRecipients(&email)
+	progress := 0.0
+	sentRecipients := 0
+	failedRecipients := 0
+	var endTime *time.Time
+
+	switch queue.Status {
+	case "sent":
+		progress = 1.0
+		sentRecipients = len(recipients)
+		if queue.LastAttempt != nil {
+			endTime = queue.LastAttempt
+		}
+	case "sending":
+		progress = 0.1
+	case "failed":
+		failedRecipients = len(recipients)
+		if queue.LastAttempt != nil {
+			endTime = queue.LastAttempt
+		}
+	}
+
+	return &SendStatus{
+		SendID:           queue.SendID,
+		EmailID:          email.ID,
+		Status:           queue.Status,
+		Progress:         progress,
+		TotalRecipients:  len(recipients),
+		SentRecipients:   sentRecipients,
+		FailedRecipients: failedRecipients,
+		StartTime:        queue.CreatedAt,
+		EndTime:          endTime,
+		Error:            queue.LastError,
+		Details: map[string]interface{}{
+			"account_id": queue.AccountID,
+			"recipients": recipients,
+			"attempts":   queue.Attempts,
+		},
+	}
+}
+
+func collectComposedRecipients(email *ComposedEmail) []string {
+	var recipients []string
+	for _, addr := range email.To {
+		if addr != nil {
+			recipients = append(recipients, addr.Address)
+		}
+	}
+	for _, addr := range email.CC {
+		if addr != nil {
+			recipients = append(recipients, addr.Address)
+		}
+	}
+	for _, addr := range email.BCC {
+		if addr != nil {
+			recipients = append(recipients, addr.Address)
+		}
+	}
+	return recipients
+}
+
+func splitRecipients(value string) []string {
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	recipients := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			recipients = append(recipients, part)
+		}
+	}
+	return recipients
 }
 
 // generateSendID 生成发送ID

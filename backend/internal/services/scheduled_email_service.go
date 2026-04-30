@@ -15,10 +15,10 @@ import (
 type ScheduledEmailService interface {
 	// StartScheduler 启动定时任务调度器
 	StartScheduler(ctx context.Context) error
-	
+
 	// StopScheduler 停止定时任务调度器
 	StopScheduler()
-	
+
 	// ProcessScheduledEmails 处理到期的定时邮件
 	ProcessScheduledEmails(ctx context.Context) error
 }
@@ -52,10 +52,10 @@ func NewScheduledEmailService(
 // StartScheduler 启动定时任务调度器
 func (s *ScheduledEmailServiceImpl) StartScheduler(ctx context.Context) error {
 	log.Println("Starting scheduled email service...")
-	
+
 	// 每分钟检查一次
 	s.ticker = time.NewTicker(1 * time.Minute)
-	
+
 	go func() {
 		for {
 			select {
@@ -72,7 +72,7 @@ func (s *ScheduledEmailServiceImpl) StartScheduler(ctx context.Context) error {
 			}
 		}
 	}()
-	
+
 	return nil
 }
 
@@ -86,32 +86,32 @@ func (s *ScheduledEmailServiceImpl) StopScheduler() {
 
 // ProcessScheduledEmails 处理到期的定时邮件
 func (s *ScheduledEmailServiceImpl) ProcessScheduledEmails(ctx context.Context) error {
-	// 查找到期的定时邮件
+	// 查找到期的定时邮件和已到重试时间的邮件
 	var scheduledEmails []models.SendQueue
 	now := time.Now()
-	
+
 	err := s.db.WithContext(ctx).
-		Where("status = ? AND scheduled_at <= ?", "scheduled", now).
+		Where("(status = ? AND scheduled_at <= ?) OR (status = ? AND next_attempt <= ?)", "scheduled", now, "retry", now).
 		Find(&scheduledEmails).Error
 	if err != nil {
 		return fmt.Errorf("failed to query scheduled emails: %w", err)
 	}
-	
+
 	if len(scheduledEmails) == 0 {
 		return nil
 	}
-	
+
 	log.Printf("Processing %d scheduled emails", len(scheduledEmails))
-	
+
 	for _, scheduledEmail := range scheduledEmails {
 		if err := s.processScheduledEmail(ctx, &scheduledEmail); err != nil {
 			log.Printf("Failed to process scheduled email %s: %v", scheduledEmail.SendID, err)
-			
+
 			// 更新错误信息和重试次数
 			s.updateScheduledEmailError(ctx, &scheduledEmail, err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -127,37 +127,49 @@ func (s *ScheduledEmailServiceImpl) processScheduledEmail(ctx context.Context, s
 	if err != nil {
 		return fmt.Errorf("failed to update status: %w", err)
 	}
-	
+
 	// 反序列化邮件数据
 	var composeRequest ComposeEmailRequest
 	if err := json.Unmarshal([]byte(scheduledEmail.EmailData), &composeRequest); err != nil {
 		return fmt.Errorf("failed to unmarshal email data: %w", err)
 	}
-	
+
 	// 组装邮件
 	composedEmail, err := s.emailComposer.ComposeEmail(ctx, &composeRequest)
 	if err != nil {
 		return fmt.Errorf("failed to compose email: %w", err)
 	}
-	
+
 	// 发送邮件
-	_, err = s.emailSender.SendEmail(ctx, composedEmail, scheduledEmail.AccountID)
+	result, err := s.emailSender.SendEmail(ctx, composedEmail, scheduledEmail.AccountID)
 	if err != nil {
 		return fmt.Errorf("failed to send email: %w", err)
 	}
-	
-	// 更新状态为已发送
+
+	status := result.Status
+	if status == "pending" || status == "sending" {
+		status = "queued"
+	}
+	if status == "failed" {
+		return fmt.Errorf("scheduled send failed after queueing: %s", result.Error)
+	}
+
+	// 更新为真实队列状态。异步发送的最终 sent/failed 状态由新 send_id 的
+	// send_queue 记录承载，不能把原 scheduled 记录伪装成最终 sent。
+	updates := map[string]interface{}{
+		"status":       status,
+		"attempts":     gorm.Expr("attempts + 1"),
+		"last_error":   "",
+		"next_attempt": nil,
+	}
 	err = s.db.WithContext(ctx).
 		Model(scheduledEmail).
-		Updates(map[string]interface{}{
-			"status":    "sent",
-			"attempts":  gorm.Expr("attempts + 1"),
-		}).Error
+		Updates(updates).Error
 	if err != nil {
-		log.Printf("Failed to update sent status: %v", err)
+		log.Printf("Failed to update scheduled status: %v", err)
 	}
-	
-	log.Printf("Successfully sent scheduled email %s", scheduledEmail.SendID)
+
+	log.Printf("Scheduled email %s processed with status %s", scheduledEmail.SendID, status)
 	return nil
 }
 
@@ -167,7 +179,7 @@ func (s *ScheduledEmailServiceImpl) updateScheduledEmailError(ctx context.Contex
 	scheduledEmail.LastError = sendErr.Error()
 	now := time.Now()
 	scheduledEmail.LastAttempt = &now
-	
+
 	// 如果超过最大重试次数，标记为失败
 	if scheduledEmail.Attempts >= scheduledEmail.MaxAttempts {
 		scheduledEmail.Status = "failed"
@@ -178,7 +190,7 @@ func (s *ScheduledEmailServiceImpl) updateScheduledEmailError(ctx context.Contex
 		scheduledEmail.NextAttempt = &nextAttempt
 		scheduledEmail.Status = "retry"
 	}
-	
+
 	// 保存更新
 	if err := s.db.WithContext(ctx).Save(scheduledEmail).Error; err != nil {
 		log.Printf("Failed to update scheduled email error: %v", err)

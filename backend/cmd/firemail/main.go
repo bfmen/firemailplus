@@ -60,7 +60,7 @@ func main() {
 	router := gin.New()
 
 	// 添加中间件
-	router.Use(gin.Logger())
+	router.Use(middleware.RedactedLogger())
 	router.Use(gin.Recovery())
 	router.Use(middleware.CORS(cfg.CORS.Origins))
 
@@ -127,6 +127,9 @@ func setupRoutes(router *gin.Engine, h *handlers.Handler) {
 			auth.POST("/login", h.Login)
 			auth.POST("/logout", h.Logout)
 			auth.GET("/me", h.AuthRequired(), h.GetCurrentUser)
+			auth.POST("/refresh", h.AuthRequired(), h.RefreshToken)
+			auth.POST("/change-password", h.AuthRequired(), h.ChangePassword)
+			auth.PUT("/profile", h.AuthRequired(), h.UpdateProfile)
 		}
 
 		// OAuth2认证路由
@@ -196,6 +199,35 @@ func setupRoutes(router *gin.Engine, h *handlers.Handler) {
 			emails.POST("/batch", h.BatchEmailOperations)
 		}
 
+		// 扩展发送、草稿和模板路由（需要认证）
+		h.RegisterExtendedEmailSendRoutes(api)
+
+		// 去重路由（需要认证）
+		h.RegisterDeduplicationRoutes(api)
+
+		// 管理路由（需要管理员权限）
+		admin := api.Group("/admin")
+		admin.Use(h.AuthRequired(), middleware.AdminRequired())
+		{
+			backups := admin.Group("/backups")
+			{
+				backups.GET("", h.ListBackups)
+				backups.POST("", h.CreateBackup)
+				backups.POST("/restore", h.RestoreBackup)
+				backups.DELETE("", h.DeleteBackup)
+				backups.POST("/validate", h.ValidateBackup)
+				backups.POST("/cleanup", h.CleanupOldBackups)
+			}
+
+			softDeletes := admin.Group("/soft-deletes")
+			{
+				softDeletes.GET("/stats", h.GetSoftDeleteStats)
+				softDeletes.POST("/cleanup", h.CleanupExpiredSoftDeletes)
+				softDeletes.POST("/:table/:id/restore", h.RestoreSoftDeleted)
+				softDeletes.DELETE("/:table/:id", h.PermanentlyDelete)
+			}
+		}
+
 		// 邮件文件夹路由（需要认证）
 		folders := api.Group("/folders")
 		folders.Use(h.AuthRequired())
@@ -226,7 +258,7 @@ func setupRoutes(router *gin.Engine, h *handlers.Handler) {
 		attachmentStorageConfig := &services.AttachmentStorageConfig{
 			BaseDir:      "attachments",
 			MaxFileSize:  25 * 1024 * 1024, // 25MB
-			CompressText: true,
+			CompressText: false,
 			CreateDirs:   true,
 			ChecksumType: "md5",
 		}

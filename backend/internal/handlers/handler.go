@@ -32,6 +32,8 @@ type Handler struct {
 	softDeleteService     services.SoftDeleteService
 	attachmentService     services.AttachmentDownloader
 	scheduledEmailService services.ScheduledEmailService
+	emailSendHandler      *EmailSendHandler
+	deduplicationHandler  *DeduplicationHandler
 }
 
 // New 创建处理器实例
@@ -93,11 +95,19 @@ func New(db *gorm.DB, cfg *config.Config) *Handler {
 	}
 
 	// 创建邮件组装器和发送器
-	emailComposer := services.NewStandardEmailComposer(&services.EmailComposerConfig{}, db)
+	emailComposer := services.NewStandardEmailComposer(nil, db)
 	emailSender := services.NewStandardEmailSender(db, providerFactory, sseService.GetEventPublisher())
+	draftService := services.NewDraftService(db)
+	templateService := services.NewEmailTemplateService(db)
+	if standardComposer, ok := emailComposer.(*services.StandardEmailComposer); ok {
+		standardComposer.SetTemplateService(templateService)
+	}
+	emailSendHandler := NewEmailSendHandler(emailComposer, emailSender, draftService, templateService, db)
 
 	// 创建定时邮件服务
 	scheduledEmailService := services.NewScheduledEmailService(db, emailService, emailComposer, emailSender)
+	deduplicationManager := services.NewDeduplicationManager(db, deduplicatorFactory, nil)
+	deduplicationHandler := NewDeduplicationHandler(deduplicationManager, db)
 
 	return &Handler{
 		db:                    db,
@@ -112,6 +122,8 @@ func New(db *gorm.DB, cfg *config.Config) *Handler {
 		softDeleteService:     softDeleteService,
 		attachmentService:     attachmentService,
 		scheduledEmailService: scheduledEmailService,
+		emailSendHandler:      emailSendHandler,
+		deduplicationHandler:  deduplicationHandler,
 	}
 }
 
@@ -139,6 +151,49 @@ func (h *Handler) GetDB() *gorm.DB {
 func (h *Handler) GetProviderFactory() *providers.ProviderFactory {
 	return h.providerFactory
 }
+
+// RegisterExtendedEmailSendRoutes registers send/draft/template routes that are
+// implemented outside the legacy email service handler.
+func (h *Handler) RegisterExtendedEmailSendRoutes(router *gin.RouterGroup) {
+	h.emailSendHandler.RegisterRoutes(router)
+}
+
+func (h *Handler) RegisterDeduplicationRoutes(router *gin.RouterGroup) {
+	h.deduplicationHandler.RegisterRoutes(router)
+}
+
+func (h *Handler) DeduplicateAccount(c *gin.Context) {
+	h.deduplicationHandler.DeduplicateAccount(c)
+}
+func (h *Handler) DeduplicateUser(c *gin.Context) {
+	h.deduplicationHandler.DeduplicateUser(c)
+}
+func (h *Handler) GetDeduplicationReport(c *gin.Context) {
+	h.deduplicationHandler.GetDeduplicationReport(c)
+}
+func (h *Handler) ScheduleDeduplication(c *gin.Context) {
+	h.deduplicationHandler.ScheduleDeduplication(c)
+}
+func (h *Handler) CancelScheduledDeduplication(c *gin.Context) {
+	h.deduplicationHandler.CancelScheduledDeduplication(c)
+}
+func (h *Handler) GetDeduplicationStats(c *gin.Context) {
+	h.deduplicationHandler.GetDeduplicationStats(c)
+}
+
+func (h *Handler) SendBulkEmails(c *gin.Context) { h.emailSendHandler.SendBulkEmails(c) }
+func (h *Handler) GetSendStatus(c *gin.Context)  { h.emailSendHandler.GetSendStatus(c) }
+func (h *Handler) ResendEmail(c *gin.Context)    { h.emailSendHandler.ResendEmail(c) }
+func (h *Handler) SaveDraft(c *gin.Context)      { h.emailSendHandler.SaveDraft(c) }
+func (h *Handler) UpdateDraft(c *gin.Context)    { h.emailSendHandler.UpdateDraft(c) }
+func (h *Handler) GetDraft(c *gin.Context)       { h.emailSendHandler.GetDraft(c) }
+func (h *Handler) ListDrafts(c *gin.Context)     { h.emailSendHandler.ListDrafts(c) }
+func (h *Handler) DeleteDraft(c *gin.Context)    { h.emailSendHandler.DeleteDraft(c) }
+func (h *Handler) CreateTemplate(c *gin.Context) { h.emailSendHandler.CreateTemplate(c) }
+func (h *Handler) UpdateTemplate(c *gin.Context) { h.emailSendHandler.UpdateTemplate(c) }
+func (h *Handler) GetTemplate(c *gin.Context)    { h.emailSendHandler.GetTemplate(c) }
+func (h *Handler) ListTemplates(c *gin.Context)  { h.emailSendHandler.ListTemplates(c) }
+func (h *Handler) DeleteTemplate(c *gin.Context) { h.emailSendHandler.DeleteTemplate(c) }
 
 // HealthCheck 健康检查
 func (h *Handler) HealthCheck(c *gin.Context) {

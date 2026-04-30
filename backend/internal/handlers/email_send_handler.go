@@ -42,25 +42,22 @@ func (h *EmailSendHandler) RegisterRoutes(router *gin.RouterGroup) {
 	emails := router.Group("/emails")
 	emails.Use(middleware.AuthRequired())
 	{
-		// 发送邮件
-		emails.POST("/send", h.SendEmail)
-		
 		// 批量发送邮件
 		emails.POST("/send/bulk", h.SendBulkEmails)
-		
+
 		// 获取发送状态
 		emails.GET("/send/:send_id/status", h.GetSendStatus)
-		
+
 		// 重新发送邮件
 		emails.POST("/send/:send_id/resend", h.ResendEmail)
-		
+
 		// 草稿相关
 		emails.POST("/draft", h.SaveDraft)
 		emails.PUT("/draft/:id", h.UpdateDraft)
 		emails.GET("/draft/:id", h.GetDraft)
 		emails.GET("/drafts", h.ListDrafts)
 		emails.DELETE("/draft/:id", h.DeleteDraft)
-		
+
 		// 模板相关
 		emails.POST("/template", h.CreateTemplate)
 		emails.PUT("/template/:id", h.UpdateTemplate)
@@ -79,7 +76,7 @@ type SendEmailRequest struct {
 // SendEmail 发送邮件
 func (h *EmailSendHandler) SendEmail(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	
+
 	var req SendEmailRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{
@@ -113,7 +110,7 @@ func (h *EmailSendHandler) SendEmail(c *gin.Context) {
 		c.JSON(http.StatusAccepted, SuccessResponse{
 			Success: true,
 			Message: "Email scheduled successfully",
-			Data:    map[string]interface{}{
+			Data: map[string]interface{}{
 				"scheduled_time": *req.ScheduledTime,
 			},
 		})
@@ -156,7 +153,7 @@ type SendBulkEmailsRequest struct {
 // SendBulkEmails 批量发送邮件
 func (h *EmailSendHandler) SendBulkEmails(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	
+
 	var req SendBulkEmailsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{
@@ -208,8 +205,24 @@ func (h *EmailSendHandler) SendBulkEmails(c *gin.Context) {
 
 // GetSendStatus 获取发送状态
 func (h *EmailSendHandler) GetSendStatus(c *gin.Context) {
+	userID := middleware.GetUserID(c)
 	sendID := c.Param("send_id")
-	
+
+	if err := h.validateSendAccess(c, sendID, userID); err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, ErrorResponse{
+				Error:   "Send status not found",
+				Message: "Send status not found",
+			})
+		} else {
+			c.JSON(http.StatusForbidden, ErrorResponse{
+				Error:   "Access denied",
+				Message: "You don't have access to this send status",
+			})
+		}
+		return
+	}
+
 	status, err := h.emailSender.GetSendStatus(c.Request.Context(), sendID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, ErrorResponse{
@@ -227,8 +240,24 @@ func (h *EmailSendHandler) GetSendStatus(c *gin.Context) {
 
 // ResendEmail 重新发送邮件
 func (h *EmailSendHandler) ResendEmail(c *gin.Context) {
+	userID := middleware.GetUserID(c)
 	sendID := c.Param("send_id")
-	
+
+	if err := h.validateSendAccess(c, sendID, userID); err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, ErrorResponse{
+				Error:   "Send status not found",
+				Message: "Send status not found",
+			})
+		} else {
+			c.JSON(http.StatusForbidden, ErrorResponse{
+				Error:   "Access denied",
+				Message: "You don't have access to this send status",
+			})
+		}
+		return
+	}
+
 	result, err := h.emailSender.ResendEmail(c.Request.Context(), sendID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
@@ -254,7 +283,7 @@ type SaveDraftRequest struct {
 // SaveDraft 保存草稿
 func (h *EmailSendHandler) SaveDraft(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	
+
 	var req SaveDraftRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{
@@ -724,14 +753,65 @@ func (h *EmailSendHandler) validateAccountAccess(c *gin.Context, accountID, user
 		Model(&models.EmailAccount{}).
 		Where("id = ? AND user_id = ?", accountID, userID).
 		Count(&count).Error
-	
+
 	if err != nil {
 		return err
 	}
-	
+
 	if count == 0 {
 		return fmt.Errorf("account not found or access denied")
 	}
-	
+
 	return nil
+}
+
+func (h *EmailSendHandler) validateSendAccess(c *gin.Context, sendID string, userID uint) error {
+	if sendID == "" {
+		return gorm.ErrRecordNotFound
+	}
+
+	var ownedCount int64
+	if err := h.db.WithContext(c.Request.Context()).
+		Model(&models.SendQueue{}).
+		Where("send_id = ? AND user_id = ?", sendID, userID).
+		Count(&ownedCount).Error; err != nil {
+		return err
+	}
+	if ownedCount > 0 {
+		return nil
+	}
+
+	if err := h.db.WithContext(c.Request.Context()).
+		Model(&models.SentEmail{}).
+		Joins("JOIN email_accounts ON email_accounts.id = sent_emails.account_id").
+		Where("sent_emails.send_id = ? AND email_accounts.user_id = ?", sendID, userID).
+		Count(&ownedCount).Error; err != nil {
+		return err
+	}
+	if ownedCount > 0 {
+		return nil
+	}
+
+	var totalCount int64
+	if err := h.db.WithContext(c.Request.Context()).
+		Model(&models.SendQueue{}).
+		Where("send_id = ?", sendID).
+		Count(&totalCount).Error; err != nil {
+		return err
+	}
+	if totalCount > 0 {
+		return fmt.Errorf("send status access denied")
+	}
+
+	if err := h.db.WithContext(c.Request.Context()).
+		Model(&models.SentEmail{}).
+		Where("send_id = ?", sendID).
+		Count(&totalCount).Error; err != nil {
+		return err
+	}
+	if totalCount > 0 {
+		return fmt.Errorf("send status access denied")
+	}
+
+	return gorm.ErrRecordNotFound
 }

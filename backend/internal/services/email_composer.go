@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"firemail/internal/models"
 	"gorm.io/gorm"
@@ -24,38 +25,38 @@ import (
 type EmailComposer interface {
 	// ComposeEmail 组装邮件
 	ComposeEmail(ctx context.Context, request *ComposeEmailRequest) (*ComposedEmail, error)
-	
+
 	// ValidateEmail 验证邮件
 	ValidateEmail(email *ComposedEmail) error
-	
+
 	// AddAttachment 添加附件
 	AddAttachment(email *ComposedEmail, attachment *EmailAttachment) error
-	
+
 	// AddInlineAttachment 添加内联附件
 	AddInlineAttachment(email *ComposedEmail, attachment *InlineAttachment) error
 }
 
 // ComposeEmailRequest 邮件组装请求
 type ComposeEmailRequest struct {
-	From                    *models.EmailAddress   `json:"from" binding:"required"`
-	To                      []*models.EmailAddress `json:"to" binding:"required,min=1"`
-	CC                      []*models.EmailAddress `json:"cc,omitempty"`
-	BCC                     []*models.EmailAddress `json:"bcc,omitempty"`
-	ReplyTo                 *models.EmailAddress   `json:"reply_to,omitempty"`
-	Subject                 string                 `json:"subject" binding:"required"`
-	TextBody                string                 `json:"text_body,omitempty"`
-	HTMLBody                string                 `json:"html_body,omitempty"`
-	Attachments             []*EmailAttachment     `json:"attachments,omitempty"`
-	AttachmentIDs           []uint                 `json:"attachment_ids,omitempty"`
-	InlineAttachments       []*InlineAttachment    `json:"inline_attachments,omitempty"`
-	Priority                string                 `json:"priority,omitempty"` // high, normal, low
-	Importance              string                 `json:"importance,omitempty"` // high, normal, low
-	ScheduledTime           *string                `json:"scheduled_time,omitempty"` // ISO 8601 format
-	RequestReadReceipt      bool                   `json:"request_read_receipt,omitempty"`
-	RequestDeliveryReceipt  bool                   `json:"request_delivery_receipt,omitempty"`
-	Headers                 map[string]string      `json:"headers,omitempty"`
-	TemplateID              *uint                  `json:"template_id,omitempty"`
-	TemplateData            map[string]interface{} `json:"template_data,omitempty"`
+	From                   *models.EmailAddress   `json:"from" binding:"required"`
+	To                     []*models.EmailAddress `json:"to" binding:"required,min=1"`
+	CC                     []*models.EmailAddress `json:"cc,omitempty"`
+	BCC                    []*models.EmailAddress `json:"bcc,omitempty"`
+	ReplyTo                *models.EmailAddress   `json:"reply_to,omitempty"`
+	Subject                string                 `json:"subject" binding:"required"`
+	TextBody               string                 `json:"text_body,omitempty"`
+	HTMLBody               string                 `json:"html_body,omitempty"`
+	Attachments            []*EmailAttachment     `json:"attachments,omitempty"`
+	AttachmentIDs          []uint                 `json:"attachment_ids,omitempty"`
+	InlineAttachments      []*InlineAttachment    `json:"inline_attachments,omitempty"`
+	Priority               string                 `json:"priority,omitempty"`       // high, normal, low
+	Importance             string                 `json:"importance,omitempty"`     // high, normal, low
+	ScheduledTime          *string                `json:"scheduled_time,omitempty"` // ISO 8601 format
+	RequestReadReceipt     bool                   `json:"request_read_receipt,omitempty"`
+	RequestDeliveryReceipt bool                   `json:"request_delivery_receipt,omitempty"`
+	Headers                map[string]string      `json:"headers,omitempty"`
+	TemplateID             *uint                  `json:"template_id,omitempty"`
+	TemplateData           map[string]interface{} `json:"template_data,omitempty"`
 }
 
 // EmailAttachment 邮件附件
@@ -100,18 +101,19 @@ type ComposedEmail struct {
 
 // StandardEmailComposer 标准邮件组装器
 type StandardEmailComposer struct {
-	config *EmailComposerConfig
-	db     *gorm.DB
+	config          *EmailComposerConfig
+	db              *gorm.DB
+	templateService EmailTemplateService
 }
 
 // EmailComposerConfig 邮件组装器配置
 type EmailComposerConfig struct {
-	MaxAttachmentSize   int64    `json:"max_attachment_size"`   // 最大附件大小
-	MaxAttachments      int      `json:"max_attachments"`       // 最大附件数量
-	AllowedFileTypes    []string `json:"allowed_file_types"`    // 允许的文件类型
-	EnableHTMLFilter    bool     `json:"enable_html_filter"`    // 启用HTML过滤
-	MaxRecipientsPerEmail int    `json:"max_recipients_per_email"` // 每封邮件最大收件人数
-	DefaultEncoding     string   `json:"default_encoding"`      // 默认编码
+	MaxAttachmentSize     int64    `json:"max_attachment_size"`      // 最大附件大小
+	MaxAttachments        int      `json:"max_attachments"`          // 最大附件数量
+	AllowedFileTypes      []string `json:"allowed_file_types"`       // 允许的文件类型
+	EnableHTMLFilter      bool     `json:"enable_html_filter"`       // 启用HTML过滤
+	MaxRecipientsPerEmail int      `json:"max_recipients_per_email"` // 每封邮件最大收件人数
+	DefaultEncoding       string   `json:"default_encoding"`         // 默认编码
 }
 
 // NewStandardEmailComposer 创建标准邮件组装器
@@ -126,11 +128,15 @@ func NewStandardEmailComposer(config *EmailComposerConfig, db *gorm.DB) EmailCom
 			DefaultEncoding:       "base64",
 		}
 	}
-	
+
 	return &StandardEmailComposer{
 		config: config,
 		db:     db,
 	}
+}
+
+func (c *StandardEmailComposer) SetTemplateService(templateService EmailTemplateService) {
+	c.templateService = templateService
 }
 
 // ComposeEmail 组装邮件
@@ -142,18 +148,18 @@ func (c *StandardEmailComposer) ComposeEmail(ctx context.Context, request *Compo
 
 	// 创建邮件对象
 	email := &ComposedEmail{
-		ID:                generateEmailID(),
-		From:              request.From,
-		To:                request.To,
-		CC:                request.CC,
-		BCC:               request.BCC,
-		ReplyTo:           request.ReplyTo,
-		Subject:           request.Subject,
-		TextBody:          request.TextBody,
-		HTMLBody:          request.HTMLBody,
-		Priority:          request.Priority,
-		Headers:           request.Headers,
-		CreatedAt:         time.Now(),
+		ID:        generateEmailID(),
+		From:      request.From,
+		To:        request.To,
+		CC:        request.CC,
+		BCC:       request.BCC,
+		ReplyTo:   request.ReplyTo,
+		Subject:   request.Subject,
+		TextBody:  request.TextBody,
+		HTMLBody:  request.HTMLBody,
+		Priority:  request.Priority,
+		Headers:   request.Headers,
+		CreatedAt: time.Now(),
 	}
 
 	// 处理模板
@@ -299,7 +305,7 @@ func (c *StandardEmailComposer) validateRequest(request *ComposeEmailRequest) er
 		return fmt.Errorf("at least one recipient is required")
 	}
 
-	if request.Subject == "" {
+	if request.Subject == "" && request.TemplateID == nil {
 		return fmt.Errorf("subject is required")
 	}
 
@@ -357,17 +363,26 @@ func (c *StandardEmailComposer) detectContentType(filename string, data []byte) 
 
 // sanitizeHTML 清理HTML内容
 func (c *StandardEmailComposer) sanitizeHTML(htmlContent string) string {
-	// 基础的HTML清理
-	// 在实际应用中，应该使用专门的HTML清理库
+	// Compose-time HTML policy: escape all supplied markup before it is sent.
+	// This is intentionally conservative until a reviewed allowlist sanitizer is introduced.
 	return html.EscapeString(htmlContent)
 }
 
 // processTemplate 处理邮件模板
 func (c *StandardEmailComposer) processTemplate(ctx context.Context, email *ComposedEmail, templateID uint, data map[string]interface{}) error {
-	// 注意：这里需要模板服务的实例，但为了避免循环依赖，
-	// 我们将在后续重构中通过依赖注入来解决
-	// 暂时返回提示信息
-	return fmt.Errorf("template processing requires TemplateService dependency injection - will be implemented in service integration")
+	if c.templateService == nil {
+		return fmt.Errorf("template service is not configured")
+	}
+
+	processed, err := c.templateService.ProcessTemplate(ctx, templateID, data)
+	if err != nil {
+		return err
+	}
+
+	email.Subject = processed.Subject
+	email.TextBody = processed.TextBody
+	email.HTMLBody = processed.HTMLBody
+	return nil
 }
 
 // buildMIMEContent 构建MIME内容
@@ -527,7 +542,7 @@ func (c *StandardEmailComposer) writeAttachment(writer *multipart.Writer, attach
 	// 创建附件头
 	header := make(textproto.MIMEHeader)
 	header.Set("Content-Type", attachment.ContentType)
-	header.Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", c.encodeFilename(attachment.Filename)))
+	header.Set("Content-Disposition", c.formatAttachmentDisposition("attachment", attachment.Filename))
 
 	if attachment.Encoding == "base64" {
 		header.Set("Content-Transfer-Encoding", "base64")
@@ -570,13 +585,60 @@ func (c *StandardEmailComposer) formatEmailAddresses(addrs []*models.EmailAddres
 }
 
 func (c *StandardEmailComposer) encodeHeader(header string) string {
-	// 简单的头部编码，实际应该使用RFC 2047编码
-	return header
+	if header == "" || isASCIIPrintable(header) {
+		return header
+	}
+	return mime.QEncoding.Encode("utf-8", header)
 }
 
 func (c *StandardEmailComposer) encodeFilename(filename string) string {
-	// 简单的文件名编码
-	return filename
+	if filename == "" || isASCIIPrintable(filename) {
+		return filename
+	}
+	return mime.QEncoding.Encode("utf-8", filename)
+}
+
+func (c *StandardEmailComposer) formatAttachmentDisposition(disposition, filename string) string {
+	if filename == "" {
+		return disposition
+	}
+
+	if isASCIIPrintable(filename) {
+		return fmt.Sprintf("%s; filename=%q", disposition, filename)
+	}
+
+	escaped := urlPathEscapeUTF8(filename)
+	return fmt.Sprintf("%s; filename=%q; filename*=utf-8''%s", disposition, c.encodeFilename(filename), escaped)
+}
+
+func isASCIIPrintable(value string) bool {
+	if !utf8.ValidString(value) {
+		return false
+	}
+	for _, r := range value {
+		if r < 32 || r >= 127 {
+			return false
+		}
+	}
+	return true
+}
+
+func urlPathEscapeUTF8(value string) string {
+	var builder strings.Builder
+	const hex = "0123456789ABCDEF"
+	for _, b := range []byte(value) {
+		if (b >= 'A' && b <= 'Z') ||
+			(b >= 'a' && b <= 'z') ||
+			(b >= '0' && b <= '9') ||
+			b == '-' || b == '.' || b == '_' || b == '~' {
+			builder.WriteByte(b)
+			continue
+		}
+		builder.WriteByte('%')
+		builder.WriteByte(hex[b>>4])
+		builder.WriteByte(hex[b&0x0f])
+	}
+	return builder.String()
 }
 
 func (c *StandardEmailComposer) createAlternativePart(writer *multipart.Writer) (*multipart.Writer, error) {

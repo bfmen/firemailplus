@@ -1,11 +1,11 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"text/template"
-	"bytes"
 	htmlTemplate "html/template"
+	"text/template"
 
 	"firemail/internal/models"
 
@@ -38,43 +38,43 @@ type EmailTemplateService interface {
 
 // CreateEmailTemplateRequest 创建邮件模板请求
 type CreateEmailTemplateRequest struct {
-	Name        string                       `json:"name" binding:"required"`
-	Description string                       `json:"description"`
-	Subject     string                       `json:"subject" binding:"required"`
-	TextBody    string                       `json:"text_body"`
-	HTMLBody    string                       `json:"html_body"`
-	Variables   []models.TemplateVariable    `json:"variables"`
-	Category    string                       `json:"category"`
-	Tags        []string                     `json:"tags"`
-	IsShared    bool                         `json:"is_shared"`
+	Name        string                    `json:"name" binding:"required"`
+	Description string                    `json:"description"`
+	Subject     string                    `json:"subject" binding:"required"`
+	TextBody    string                    `json:"text_body"`
+	HTMLBody    string                    `json:"html_body"`
+	Variables   []models.TemplateVariable `json:"variables"`
+	Category    string                    `json:"category"`
+	Tags        []string                  `json:"tags"`
+	IsShared    bool                      `json:"is_shared"`
 }
 
 // UpdateEmailTemplateRequest 更新邮件模板请求
 type UpdateEmailTemplateRequest struct {
-	Name        *string                      `json:"name"`
-	Description *string                      `json:"description"`
-	Subject     *string                      `json:"subject"`
-	TextBody    *string                      `json:"text_body"`
-	HTMLBody    *string                      `json:"html_body"`
-	Variables   []models.TemplateVariable    `json:"variables"`
-	Category    *string                      `json:"category"`
-	Tags        []string                     `json:"tags"`
-	IsActive    *bool                        `json:"is_active"`
-	IsShared    *bool                        `json:"is_shared"`
+	Name        *string                   `json:"name"`
+	Description *string                   `json:"description"`
+	Subject     *string                   `json:"subject"`
+	TextBody    *string                   `json:"text_body"`
+	HTMLBody    *string                   `json:"html_body"`
+	Variables   []models.TemplateVariable `json:"variables"`
+	Category    *string                   `json:"category"`
+	Tags        []string                  `json:"tags"`
+	IsActive    *bool                     `json:"is_active"`
+	IsShared    *bool                     `json:"is_shared"`
 }
 
 // ListEmailTemplatesRequest 列出邮件模板请求
 type ListEmailTemplatesRequest struct {
-	Category      string `form:"category"`
-	Tag           string `form:"tag"`
-	IsActive      *bool  `form:"is_active"`
-	IsShared      *bool  `form:"is_shared"`
-	IncludeBuiltIn bool  `form:"include_built_in"`
-	Search        string `form:"search"`
-	Page          int    `form:"page"`
-	PageSize      int    `form:"page_size"`
-	SortBy        string `form:"sort_by"`
-	SortOrder     string `form:"sort_order"`
+	Category       string `form:"category"`
+	Tag            string `form:"tag"`
+	IsActive       *bool  `form:"is_active"`
+	IsShared       *bool  `form:"is_shared"`
+	IncludeBuiltIn bool   `form:"include_built_in"`
+	Search         string `form:"search"`
+	Page           int    `form:"page"`
+	PageSize       int    `form:"page_size"`
+	SortBy         string `form:"sort_by"`
+	SortOrder      string `form:"sort_order"`
 }
 
 // ListEmailTemplatesResponse 列出邮件模板响应
@@ -111,27 +111,27 @@ func (s *EmailTemplateServiceImpl) CreateTemplate(ctx context.Context, userID ui
 	if req.Name == "" {
 		return nil, fmt.Errorf("template name is required")
 	}
-	
+
 	if req.Subject == "" {
 		return nil, fmt.Errorf("template subject is required")
 	}
-	
+
 	if req.TextBody == "" && req.HTMLBody == "" {
 		return nil, fmt.Errorf("template body is required")
 	}
-	
+
 	// 检查模板名称是否已存在
 	var existingTemplate models.EmailTemplate
 	err := s.db.WithContext(ctx).
 		Where("user_id = ? AND name = ? AND deleted_at IS NULL", userID, req.Name).
 		First(&existingTemplate).Error
-	
+
 	if err == nil {
 		return nil, fmt.Errorf("template with name '%s' already exists", req.Name)
 	} else if err != gorm.ErrRecordNotFound {
 		return nil, fmt.Errorf("failed to check template name: %w", err)
 	}
-	
+
 	// 创建模板
 	template := &models.EmailTemplate{
 		UserID:      userID,
@@ -146,26 +146,26 @@ func (s *EmailTemplateServiceImpl) CreateTemplate(ctx context.Context, userID ui
 		IsBuiltIn:   false,
 		UsageCount:  0,
 	}
-	
+
 	// 设置变量
 	if len(req.Variables) > 0 {
 		if err := template.SetVariables(req.Variables); err != nil {
 			return nil, fmt.Errorf("failed to set template variables: %w", err)
 		}
 	}
-	
+
 	// 设置标签
 	if len(req.Tags) > 0 {
 		if err := template.SetTags(req.Tags); err != nil {
 			return nil, fmt.Errorf("failed to set template tags: %w", err)
 		}
 	}
-	
+
 	// 保存到数据库
 	if err := s.db.WithContext(ctx).Create(template).Error; err != nil {
 		return nil, fmt.Errorf("failed to create template: %w", err)
 	}
-	
+
 	return template, nil
 }
 
@@ -458,7 +458,7 @@ func (s *EmailTemplateServiceImpl) processTemplateText(templateText string, data
 		return "", nil
 	}
 
-	tmpl, err := template.New("text").Parse(templateText)
+	tmpl, err := template.New("text").Option("missingkey=error").Parse(templateText)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse text template: %w", err)
 	}
@@ -477,7 +477,7 @@ func (s *EmailTemplateServiceImpl) processTemplateHTML(templateHTML string, data
 		return "", nil
 	}
 
-	tmpl, err := htmlTemplate.New("html").Parse(templateHTML)
+	tmpl, err := htmlTemplate.New("html").Option("missingkey=error").Parse(templateHTML)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse HTML template: %w", err)
 	}
