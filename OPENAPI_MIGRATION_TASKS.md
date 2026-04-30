@@ -63,6 +63,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 | T26 | done | Add reproducible local production E2E harness and reporting. | Backend curl and frontend jshook flows produce redacted artifacts under `/tmp/firemailplus-e2e-artifacts`. |
 | T27 | done | Rebuild, deploy a clean test instance, import the two Outlook accounts, and rerun full E2E. | Backend curl and frontend jshook pass with no unexpected 4xx/5xx/timeout/leaks. |
 | T28 | done | Record final E2E acceptance and cleanup. | Task file records final commands, commits, risks, and clean generated/worktree status. |
+| T29 | done | Rerun Docker production E2E after Docker registry access recovered. | Current HEAD Docker image builds; isolated Docker container passes backend harness and jshook frontend smoke with sanitized artifacts. |
 
 ## Per-Task Log
 
@@ -979,6 +980,46 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
   - `git diff --check`: passed.
   - Final artifact locations: redacted E2E reports and sanitized HAR/screenshots remain under `/tmp/firemailplus-e2e-artifacts`; runtime env and service logs remain under `/tmp/firemailplus-e2e`.
 
+### T29 - Docker Production E2E Rerun
+
+- ID: T29
+- Status: done
+- Goal: Rebuild the current HEAD Docker image after Docker registry access recovered, run it as an isolated production-like container, and rerun backend curl/harness plus jshook frontend validation against the Docker path.
+- Code To Inspect: `Dockerfile`, `docker ps`, Docker container logs, `/tmp/firemailplus-e2e/runtime.env`, `/tmp/firemailplus-e2e/data/firemail.db`, `scripts/e2e-local-production.mjs`, jshook HAR/network evidence, `OPENAPI_MIGRATION_TASKS.md`.
+- Allowed Changes: `OPENAPI_MIGRATION_TASKS.md` only unless a new product defect is found. Do not commit runtime env files, raw HAR files, local databases, container logs, or account credentials.
+- Implementation Notes:
+  - Existing container `firemail-app` on host port `3000` was not used as current evidence because `GET http://localhost:3000/api/v1/health` returned `404 page not found` and logs showed the old relative migration path message.
+  - Built current HEAD as `firemailplus:e2e-docker-rerun` and launched isolated container `firemailplus-e2e-docker-rerun` on host port `3200`, reusing `/tmp/firemailplus-e2e/data` so the two Outlook accounts did not need to be re-imported.
+  - `GET http://localhost:3200/api/v1/health` returned backend health JSON through the frontend rewrite, confirming the new Docker image contains the T27 health-rewrite fix.
+  - Backend E2E harness against Docker wrote redacted artifacts under `/tmp/firemailplus-e2e-artifacts-docker` and passed 11 checks with 0 failures.
+  - jshook frontend smoke logged in through the production UI, reached `/mailbox`, displayed both Outlook accounts and the known E2E prefix mail, stayed healthy after a 120 second jshook page hold, then loaded `/mailbox/search?q=FMP-E2E-20260430101455` with 6 visible results.
+  - Sanitized HAR network summary: 87 entries, 1 login request, 1 search request, 2 folder requests, 2 SSE requests, 0 API 4xx/5xx, and 0 `/api/v1/folders` requests without `account_id`.
+  - First sanitized HAR scan still found SSE query-token values in request URLs/queryString, so the artifact sanitizer was rerun to redact URL query tokens and the raw HAR was deleted before final artifact retention.
+- Self Review Checklist:
+  - [x] Current HEAD Docker image build result is recorded.
+  - [x] Old container mismatch is recorded and excluded from acceptance evidence.
+  - [x] Backend Docker harness result is recorded.
+  - [x] jshook frontend Docker smoke result is recorded.
+  - [x] HAR/network contract and artifact secret scan are recorded.
+  - [x] No runtime credential, raw HAR, database, or log artifact is staged.
+- Acceptance Commands:
+  - `docker build -t firemailplus:e2e-docker-rerun .`
+  - `docker run -d --name firemailplus-e2e-docker-rerun --rm -p 3200:3000 -v /tmp/firemailplus-e2e/data:/app/data ... firemailplus:e2e-docker-rerun`
+  - `curl -sS -i http://localhost:3200/api/v1/health`
+  - `curl -sS -I http://localhost:3200/`
+  - `E2E_ARTIFACT_DIR=/tmp/firemailplus-e2e-artifacts-docker E2E_BASE_URL=http://localhost:3200 E2E_API_BASE_URL=http://localhost:3200/api/v1 node scripts/e2e-local-production.mjs --backend-only`
+  - jshook browser smoke against `http://localhost:3200`: login, mailbox, 120 second page hold, search, folder-contract network check, HAR export/redaction, secret scan.
+  - `git diff --check`
+- Exit Result: passed on 2026-04-30.
+  - `docker build -t firemailplus:e2e-docker-rerun .`: passed. Frontend `pnpm build` and backend static Go build both completed; Docker emitted only the static `SecretsUsedInArgOrEnv` warning for the existing `ENCRYPTION_KEY` environment variable name.
+  - Docker container health: `GET /api/v1/health` returned `{"service":"FireMail","status":"ok","version":"1.0.0"}` through `http://localhost:3200`.
+  - Frontend root: `HEAD http://localhost:3200/` returned `200 OK`.
+  - Backend harness: passed 11/11 checks with 0 failures and 0 skipped checks.
+  - jshook frontend: login and mailbox passed; both Outlook accounts were visible; known prefix mail was visible; after 120 seconds the page remained on `/mailbox`; search returned 6 visible known-prefix results.
+  - HAR/network check: no unexpected API 4xx/5xx responses and no folder request without `account_id`.
+  - Artifact secret scan: passed after redacting SSE query-token URL/queryString values; raw HAR was removed and only sanitized artifacts remain under `/tmp/firemailplus-e2e-artifacts-docker`.
+  - Final repository gates after updating this task file: `cd backend && go test ./...` passed; `cd frontend && pnpm type-check` passed; `make check-api-generated` passed with the accepted F011 Redocly warnings; `git diff --exit-code -- backend/internal/api/generated frontend/src/api/generated` passed; `git diff --check` passed.
+
 ## Findings
 
 - F001: Phase 1 stable route boundary should start from real registrations in `backend/cmd/firemail/main.go`, plus attachment routes registered through `AttachmentHandler.RegisterRoutes(api)`.
@@ -1008,6 +1049,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - F025: Local Next standalone fallback must mirror Docker's asset copy semantics. Running `frontend/.next/standalone/server.js` from the repo without `.next/static` under the standalone directory serves chunk URLs as 404 HTML, preventing hydration and leaving the UI on the initialization screen.
 - F026: The frontend hydration guard needs a client-mounted fallback in addition to persisted auth-store rehydration, so a fresh browser state cannot remain indefinitely blocked by a missing or delayed persisted store callback.
 - F027: Runtime attachment storage and local agent state are not source artifacts. `backend/attachments/` and `.codex/` should stay ignored so clean E2E runs do not create accidental commit candidates.
+- F028: The current Docker path is now validated independently of the older `firemail-app` container. Future Docker E2E reruns should use an isolated container/tag or first prove the existing container image matches the current HEAD.
 
 ## Errors Encountered
 
@@ -1024,6 +1066,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - E024: T27 frontend `pnpm type-check` failed with missing `.next/types/**` files because it was run concurrently with `next build`, which was rewriting `.next`. Different strategy applied: wait for `next build` to finish, then rerun type-check as a separate step.
 - E025: T27 first jshook login smoke stayed on `正在初始化应用...` with no inputs after clearing browser storage. Investigation showed external Next chunks were not executing because standalone static chunk requests returned 404 HTML. Different strategy applied: prepare `.next/static` and `public` inside `frontend/.next/standalone`, start the fallback server from the standalone directory, and add harness/docs coverage for the asset copy.
 - E026: T27 fresh-state route guard still depended on persisted auth-store rehydration to release the initialization screen. Different strategy applied: add a client-mounted hydration fallback in `useHydration()` while still synchronizing `setHydrated()` into the auth store.
+- E027: T29 first sanitized HAR secret scan found JWT values in SSE request URL/queryString fields even though headers and bodies were redacted. Different strategy applied: redact token-bearing URL query parameters and HAR `queryString` values, delete the raw HAR, then rerun the secret scan with a corrected regex and retain only sanitized artifacts.
 - E001: Initial Redocly lint failed because `SuccessResponse.data` used `nullable` without a sibling `type`, and `/health` lacked an explicit security declaration. Different strategy applied: define `data` as a nullable object and add `security: []` to the public health operation.
 - E002: Initial Orval config generated schema files under a directory named `firemail.schemas.ts`, causing poor `from './.'` imports. Different strategy applied: use `frontend/src/api/generated/model` as the schema directory.
 - E003: `pnpm type-check` failed because `orval.config.ts` used unsupported `output.prettier`. Different strategy applied: remove that field and rely on Orval's generated output formatting.
@@ -1067,6 +1110,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - T26 passed on 2026-04-30: local production E2E harness, jshook plan, redaction contract, docs, dry-run artifacts, backend/frontend/generated gates, and diff checks pass.
 - T27 passed on 2026-04-30: Docker build was blocked by upstream base image pulls, local production fallback was rebuilt and fixed, two Outlook accounts were imported with credentials kept out of tracked files, backend harness passed 11/11 checks, jshook passed login/mailbox/SSE/search/folder-contract checks, sanitized frontend HAR/screenshots were written under `/tmp/firemailplus-e2e-artifacts`, artifact leak scan passed, and backend/frontend/generated/diff gates pass.
 - T28 passed on 2026-04-30: final cleanup ignored `.codex/` and `backend/attachments/`, T27 commit `e43a367` was recorded, backend tests, frontend type-check, OpenAPI/codegen, generated drift, and diff checks all passed, and final residual risks/artifact locations are recorded.
+- T29 passed on 2026-04-30: Docker registry access recovered, current HEAD image `firemailplus:e2e-docker-rerun` built successfully, isolated container on `http://localhost:3200` passed health/root checks, backend harness passed 11/11 checks, jshook passed login/mailbox/120s hold/search/folder-contract checks, sanitized Docker HAR/network artifacts were written under `/tmp/firemailplus-e2e-artifacts-docker`, artifact secret scan passed after SSE query-token redaction, and final backend/frontend/generated/diff gates passed.
 
 ## Deferred Decisions
 
