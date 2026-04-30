@@ -1,0 +1,2196 @@
+# FireMailPlus OpenAPI contract.
+# This file is hand-written source. Generated artifacts must be produced from it.
+openapi: 3.0.3
+info:
+  title: FireMailPlus API
+  version: 0.3.0
+  license:
+    name: Proprietary
+  description: |
+    Contract-first API definition for the stable FireMailPlus `/api/v1`
+    backend surface.
+
+    This Phase 1 contract intentionally includes only routes that are
+    registered in the production Gin router. Dead, unregistered, fake-success,
+    or schema-blocked handlers remain excluded until their repair tasks are
+    completed.
+servers:
+  - url: /
+    description: Relative server URL
+security:
+  - bearerAuth: []
+tags:
+  - name: Health
+    description: Service health endpoints.
+  - name: Auth
+    description: Authentication endpoints.
+  - name: OAuth
+    description: OAuth account connection endpoints.
+  - name: Accounts
+    description: Email account management endpoints.
+  - name: Providers
+    description: Provider metadata and detection endpoints.
+  - name: Emails
+    description: Email list, detail, state, reply, forward, send, and batch endpoints.
+  - name: Folders
+    description: Mail folder management endpoints.
+  - name: Groups
+    description: Email account group management endpoints.
+  - name: Attachments
+    description: Attachment upload, download, preview, and email attachment endpoints.
+  - name: SSE
+    description: Server-sent event endpoints.
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Check service health
+      description: Returns the FireMailPlus service liveness status.
+      security: []
+      responses:
+        '200':
+          description: Service is alive.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Log in
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/LoginSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Log out
+      security: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      operationId: getCurrentUser
+      summary: Get current user
+      responses:
+        '200':
+          $ref: '#/components/responses/UserSuccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshToken
+      summary: Refresh current access token
+      responses:
+        '200':
+          $ref: '#/components/responses/LoginSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/change-password:
+    post:
+      tags: [Auth]
+      operationId: changePassword
+      summary: Change current user password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/auth/profile:
+    put:
+      tags: [Auth]
+      operationId: updateProfile
+      summary: Update current user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/UserSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/oauth/gmail:
+    get:
+      tags: [OAuth]
+      operationId: initGmailOAuth
+      summary: Initialize Gmail OAuth
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CallbackUrlQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/OAuthInitSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/v1/oauth/outlook:
+    get:
+      tags: [OAuth]
+      operationId: initOutlookOAuth
+      summary: Initialize Outlook OAuth
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CallbackUrlQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/OAuthInitSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/v1/oauth/{provider}/callback:
+    get:
+      tags: [OAuth]
+      operationId: handleOAuthCallback
+      summary: Handle OAuth callback
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ProviderPath'
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/OAuthTokenSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/v1/oauth/create-account:
+    post:
+      tags: [OAuth]
+      operationId: createOAuthAccount
+      summary: Create OAuth email account
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/EmailAccountSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/oauth/manual-config:
+    post:
+      tags: [OAuth]
+      operationId: createManualOAuthAccount
+      summary: Create manually configured OAuth email account
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/EmailAccountSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/accounts:
+    get:
+      tags: [Accounts]
+      operationId: listEmailAccounts
+      summary: List email accounts
+      responses:
+        '200':
+          $ref: '#/components/responses/EmailAccountsSuccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Accounts]
+      operationId: createEmailAccount
+      summary: Create email account
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '201':
+          $ref: '#/components/responses/EmailAccountSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/accounts/custom:
+    post:
+      tags: [Accounts]
+      operationId: createCustomEmailAccount
+      summary: Create custom IMAP/SMTP email account
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '201':
+          $ref: '#/components/responses/EmailAccountSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/accounts/{id}:
+    get:
+      tags: [Accounts]
+      operationId: getEmailAccount
+      summary: Get email account
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/EmailAccountSuccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Accounts]
+      operationId: updateEmailAccount
+      summary: Update email account
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/EmailAccountSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Accounts]
+      operationId: deleteEmailAccount
+      summary: Delete email account
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/accounts/{id}/test:
+    post:
+      tags: [Accounts]
+      operationId: testEmailAccount
+      summary: Test email account connection
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/accounts/{id}/sync:
+    post:
+      tags: [Accounts]
+      operationId: syncEmailAccount
+      summary: Sync email account
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/accounts/{id}/mark-read:
+    put:
+      tags: [Accounts]
+      operationId: markAccountAsRead
+      summary: Mark all account mail as read
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/accounts/batch/delete:
+    post:
+      tags: [Accounts]
+      operationId: batchDeleteEmailAccounts
+      summary: Batch delete email accounts
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/accounts/batch/sync:
+    post:
+      tags: [Accounts]
+      operationId: batchSyncEmailAccounts
+      summary: Batch sync email accounts
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/accounts/batch/mark-read:
+    post:
+      tags: [Accounts]
+      operationId: batchMarkAccountsAsRead
+      summary: Batch mark accounts as read
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/providers:
+    get:
+      tags: [Providers]
+      operationId: listProviders
+      summary: List supported providers
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/providers/detect:
+    get:
+      tags: [Providers]
+      operationId: detectProvider
+      summary: Detect provider settings
+      parameters:
+        - name: email
+          in: query
+          required: true
+          schema:
+            type: string
+            format: email
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/emails:
+    get:
+      tags: [Emails]
+      operationId: listEmails
+      summary: List emails
+      parameters:
+        - $ref: '#/components/parameters/AccountIdQuery'
+        - $ref: '#/components/parameters/FolderIdQuery'
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/PageSizeQuery'
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: is_read
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: is_starred
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: is_important
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: sort_by
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sort_order
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        '200':
+          $ref: '#/components/responses/EmailsPageSuccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/emails/search:
+    get:
+      tags: [Emails]
+      operationId: searchEmails
+      summary: Search emails
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: subject
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: body
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: has_attachment
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: is_read
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: is_starred
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/AccountIdQuery'
+        - $ref: '#/components/parameters/FolderIdQuery'
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/PageSizeQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/EmailsPageSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/emails/{id}:
+    get:
+      tags: [Emails]
+      operationId: getEmail
+      summary: Get email detail
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/EmailSuccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Emails]
+      operationId: updateEmail
+      summary: Update email flags
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/EmailSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Emails]
+      operationId: deleteEmail
+      summary: Delete email
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/emails/send:
+    post:
+      tags: [Emails]
+      operationId: sendEmail
+      summary: Send email
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/emails/send/bulk:
+    post:
+      tags: [Emails]
+      operationId: sendBulkEmails
+      summary: Queue multiple emails for sending
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '202':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/emails/send/{send_id}/status:
+    get:
+      tags: [Emails]
+      operationId: getSendStatus
+      summary: Get persistent send status
+      parameters:
+        - name: send_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/emails/send/{send_id}/resend:
+    post:
+      tags: [Emails]
+      operationId: resendEmail
+      summary: Queue a resend from persisted send payload
+      parameters:
+        - name: send_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/emails/draft:
+    post:
+      tags: [Emails]
+      operationId: saveDraft
+      summary: Save an email draft
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '201':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/emails/draft/{id}:
+    get:
+      tags: [Emails]
+      operationId: getDraft
+      summary: Get a draft
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Emails]
+      operationId: updateDraft
+      summary: Update a draft
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Emails]
+      operationId: deleteDraft
+      summary: Delete a draft
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/emails/drafts:
+    get:
+      tags: [Emails]
+      operationId: listDrafts
+      summary: List drafts
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/emails/template:
+    post:
+      tags: [Emails]
+      operationId: createTemplate
+      summary: Create an email template
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '201':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/emails/template/{id}:
+    get:
+      tags: [Emails]
+      operationId: getTemplate
+      summary: Get an email template
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Emails]
+      operationId: updateTemplate
+      summary: Update an email template
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Emails]
+      operationId: deleteTemplate
+      summary: Delete an email template
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/emails/templates:
+    get:
+      tags: [Emails]
+      operationId: listTemplates
+      summary: List email templates
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/deduplication/accounts/{id}/deduplicate:
+    post:
+      tags: [Deduplication]
+      operationId: deduplicateAccount
+      summary: Deduplicate one email account
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/deduplication/user/deduplicate:
+    post:
+      tags: [Deduplication]
+      operationId: deduplicateUser
+      summary: Deduplicate all accounts owned by the current user
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/deduplication/accounts/{id}/report:
+    get:
+      tags: [Deduplication]
+      operationId: getDeduplicationReport
+      summary: Get deduplication report
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/deduplication/accounts/{id}/schedule:
+    post:
+      tags: [Deduplication]
+      operationId: scheduleDeduplication
+      summary: Schedule deduplication
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    delete:
+      tags: [Deduplication]
+      operationId: cancelScheduledDeduplication
+      summary: Cancel scheduled deduplication
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/deduplication/accounts/{id}/stats:
+    get:
+      tags: [Deduplication]
+      operationId: getDeduplicationStats
+      summary: Get deduplication stats
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/backups:
+    get:
+      tags: [Admin]
+      operationId: listBackups
+      summary: List database backups
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin]
+      operationId: createBackup
+      summary: Create a database backup
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    delete:
+      tags: [Admin]
+      operationId: deleteBackup
+      summary: Delete a database backup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupPathRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/backups/restore:
+    post:
+      tags: [Admin]
+      operationId: restoreBackup
+      summary: Restore a database backup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupPathRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/backups/validate:
+    post:
+      tags: [Admin]
+      operationId: validateBackup
+      summary: Validate a database backup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupPathRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/backups/cleanup:
+    post:
+      tags: [Admin]
+      operationId: cleanupBackups
+      summary: Clean up old database backups
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/soft-deletes/stats:
+    get:
+      tags: [Admin]
+      operationId: getSoftDeleteStats
+      summary: Get soft-delete statistics
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/soft-deletes/cleanup:
+    post:
+      tags: [Admin]
+      operationId: cleanupSoftDeletes
+      summary: Permanently delete expired soft-deleted records
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SoftDeleteCleanupRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/soft-deletes/{table}/{id}/restore:
+    post:
+      tags: [Admin]
+      operationId: restoreSoftDeleted
+      summary: Restore a soft-deleted record
+      parameters:
+        - $ref: '#/components/parameters/TablePath'
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/soft-deletes/{table}/{id}:
+    delete:
+      tags: [Admin]
+      operationId: permanentlyDeleteSoftDeleted
+      summary: Permanently delete a soft-deleted record
+      parameters:
+        - $ref: '#/components/parameters/TablePath'
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/emails/{id}/read:
+    put:
+      tags: [Emails]
+      operationId: markEmailAsRead
+      summary: Mark email as read
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/emails/{id}/unread:
+    put:
+      tags: [Emails]
+      operationId: markEmailAsUnread
+      summary: Mark email as unread
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/emails/{id}/star:
+    put:
+      tags: [Emails]
+      operationId: toggleEmailStar
+      summary: Toggle email star
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/EmailSuccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/emails/{id}/move:
+    put:
+      tags: [Emails]
+      operationId: moveEmail
+      summary: Move email
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/emails/{id}/archive:
+    put:
+      tags: [Emails]
+      operationId: archiveEmail
+      summary: Archive email
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/emails/{id}/reply:
+    post:
+      tags: [Emails]
+      operationId: replyEmail
+      summary: Reply to email
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/emails/{id}/reply-all:
+    post:
+      tags: [Emails]
+      operationId: replyAllEmail
+      summary: Reply all to email
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/emails/{id}/forward:
+    post:
+      tags: [Emails]
+      operationId: forwardEmail
+      summary: Forward email
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/emails/batch:
+    post:
+      tags: [Emails]
+      operationId: batchEmailOperations
+      summary: Batch email operations
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/folders:
+    get:
+      tags: [Folders]
+      operationId: listFolders
+      summary: List folders
+      parameters:
+        - $ref: '#/components/parameters/AccountIdQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/FoldersSuccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Folders]
+      operationId: createFolder
+      summary: Create folder
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '201':
+          $ref: '#/components/responses/FolderSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/folders/{id}:
+    get:
+      tags: [Folders]
+      operationId: getFolder
+      summary: Get folder
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/FolderSuccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Folders]
+      operationId: updateFolder
+      summary: Update folder
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/FolderSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Folders]
+      operationId: deleteFolder
+      summary: Delete folder
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/folders/{id}/mark-read:
+    put:
+      tags: [Folders]
+      operationId: markFolderAsRead
+      summary: Mark folder as read
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/folders/{id}/sync:
+    put:
+      tags: [Folders]
+      operationId: syncFolder
+      summary: Sync folder
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/groups:
+    get:
+      tags: [Groups]
+      operationId: listEmailGroups
+      summary: List email groups
+      responses:
+        '200':
+          $ref: '#/components/responses/EmailGroupsSuccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Groups]
+      operationId: createEmailGroup
+      summary: Create email group
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '201':
+          $ref: '#/components/responses/EmailGroupSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/groups/reorder:
+    put:
+      tags: [Groups]
+      operationId: reorderEmailGroups
+      summary: Reorder email groups
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/EmailGroupsSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/groups/{id}:
+    put:
+      tags: [Groups]
+      operationId: updateEmailGroup
+      summary: Update email group
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/EmailGroupSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Groups]
+      operationId: deleteEmailGroup
+      summary: Delete email group
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/groups/{id}/default:
+    put:
+      tags: [Groups]
+      operationId: setDefaultEmailGroup
+      summary: Set default email group
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/EmailGroupSuccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/attachments/upload:
+    post:
+      tags: [Attachments]
+      operationId: uploadAttachment
+      summary: Upload attachment
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                email_id:
+                  type: integer
+                  format: int64
+      responses:
+        '200':
+          $ref: '#/components/responses/AttachmentSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/attachments/{id}/download:
+    get:
+      tags: [Attachments]
+      operationId: downloadAttachment
+      summary: Download attachment
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Attachment bytes.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Attachments]
+      operationId: forceDownloadAttachment
+      summary: Force attachment redownload
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/AttachmentSuccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/attachments/{id}/preview:
+    get:
+      tags: [Attachments]
+      operationId: previewAttachment
+      summary: Preview attachment
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Preview bytes or preview metadata, depending on attachment type.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+            text/plain:
+              schema:
+                type: string
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '415':
+          description: Attachment type cannot be previewed by the current backend.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/attachments/{id}/progress:
+    get:
+      tags: [Attachments]
+      operationId: getAttachmentDownloadProgress
+      summary: Get attachment download progress
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/emails/{id}/attachments:
+    get:
+      tags: [Attachments]
+      operationId: listEmailAttachments
+      summary: List email attachments
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/AttachmentsSuccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/emails/{id}/attachments/download:
+    post:
+      tags: [Attachments]
+      operationId: downloadEmailAttachments
+      summary: Download all email attachments
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/AttachmentsSuccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/sse:
+    get:
+      tags: [SSE]
+      operationId: streamSSE
+      summary: Open SSE stream
+      description: Opens a server-sent event stream. Browser compatibility may pass the bearer token in the query string.
+      security:
+        - bearerAuth: []
+        - queryToken: []
+      parameters:
+        - $ref: '#/components/parameters/TokenQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/SseStream'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/sse/events:
+    get:
+      tags: [SSE]
+      operationId: streamSSEEvents
+      summary: Open compatibility SSE stream
+      security:
+        - bearerAuth: []
+        - queryToken: []
+      parameters:
+        - $ref: '#/components/parameters/TokenQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/SseStream'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/sse/stats:
+    get:
+      tags: [SSE]
+      operationId: getSSEStats
+      summary: Get SSE service stats
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/sse/test:
+    post:
+      tags: [SSE]
+      operationId: sendTestSSEEvent
+      summary: Send test SSE event
+      requestBody:
+        $ref: '#/components/requestBodies/JsonBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    queryToken:
+      type: apiKey
+      in: query
+      name: token
+      description: Browser EventSource compatibility token. Server logs must redact this value.
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    TablePath:
+      name: table
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [emails, email_accounts, folders, attachments, users]
+    ProviderPath:
+      name: provider
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [gmail, outlook]
+    CallbackUrlQuery:
+      name: callback_url
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uri
+    AccountIdQuery:
+      name: account_id
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    FolderIdQuery:
+      name: folder_id
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    PageQuery:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSizeQuery:
+      name: page_size
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 20
+    TokenQuery:
+      name: token
+      in: query
+      required: false
+      schema:
+        type: string
+  requestBodies:
+    JsonBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: true
+  responses:
+    Success:
+      description: Operation succeeded.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SuccessResponse'
+    LoginSuccess:
+      description: Login succeeded.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessResponse'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/LoginResponse'
+    UserSuccess:
+      description: User response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessResponse'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/User'
+    OAuthInitSuccess:
+      description: OAuth initialization response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessResponse'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/OAuthInitResponse'
+    OAuthTokenSuccess:
+      description: OAuth token response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessResponse'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/OAuthTokenResponse'
+    EmailAccountSuccess:
+      description: Email account response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessResponse'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/EmailAccount'
+    EmailAccountsSuccess:
+      description: Email account list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessResponse'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EmailAccount'
+    EmailsPageSuccess:
+      description: Email page response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessResponse'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/EmailPage'
+    EmailSuccess:
+      description: Email response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessResponse'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Email'
+    FolderSuccess:
+      description: Folder response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessResponse'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Folder'
+    FoldersSuccess:
+      description: Folder list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessResponse'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Folder'
+    EmailGroupSuccess:
+      description: Email group response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessResponse'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/EmailGroup'
+    EmailGroupsSuccess:
+      description: Email group list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessResponse'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EmailGroup'
+    AttachmentSuccess:
+      description: Attachment response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessResponse'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Attachment'
+    AttachmentsSuccess:
+      description: Attachment list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessResponse'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Attachment'
+    SseStream:
+      description: Server-sent event stream.
+      content:
+        text/event-stream:
+          schema:
+            type: string
+            description: EventSource stream with named events and JSON payloads.
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Missing or invalid authentication.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Authenticated user is not allowed to access this resource.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ServiceUnavailable:
+      description: Service unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status, service, version]
+      properties:
+        status:
+          type: string
+          example: ok
+        service:
+          type: string
+          example: FireMail
+        version:
+          type: string
+          example: 1.0.0
+    ErrorResponse:
+      type: object
+      additionalProperties: true
+      required: [error]
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        code:
+          type: string
+    SuccessResponse:
+      type: object
+      additionalProperties: false
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          nullable: true
+          additionalProperties: true
+        message:
+          type: string
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [old_password, new_password]
+      properties:
+        old_password:
+          type: string
+          format: password
+        new_password:
+          type: string
+          format: password
+          minLength: 6
+    UpdateProfileRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        display_name:
+          type: string
+        email:
+          type: string
+          format: email
+    BackupPathRequest:
+      type: object
+      additionalProperties: false
+      required: [backup_path]
+      properties:
+        backup_path:
+          type: string
+    SoftDeleteCleanupRequest:
+      type: object
+      additionalProperties: false
+      required: [retention_days]
+      properties:
+        retention_days:
+          type: integer
+          minimum: 1
+    LoginResponse:
+      type: object
+      additionalProperties: true
+      required: [token, expires_at, user]
+      properties:
+        token:
+          type: string
+        expires_at:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+    User:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        role:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+        updated_at:
+          type: string
+    OAuthInitResponse:
+      type: object
+      additionalProperties: false
+      required: [auth_url, state]
+      properties:
+        auth_url:
+          type: string
+        state:
+          type: string
+    OAuthTokenResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+        expires_in:
+          type: integer
+        scope:
+          type: string
+    EmailAddress:
+      type: object
+      additionalProperties: true
+      properties:
+        name:
+          type: string
+        address:
+          type: string
+          format: email
+    EmailAccount:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        group_id:
+          type: integer
+          format: int64
+          nullable: true
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        provider:
+          type: string
+        auth_method:
+          type: string
+        is_active:
+          type: boolean
+        sync_status:
+          type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+    Email:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: integer
+          format: int64
+        account_id:
+          type: integer
+          format: int64
+        folder_id:
+          type: integer
+          format: int64
+        subject:
+          type: string
+        from:
+          $ref: '#/components/schemas/EmailAddress'
+        to:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailAddress'
+        cc:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailAddress'
+        bcc:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailAddress'
+        text_body:
+          type: string
+        html_body:
+          type: string
+        is_read:
+          type: boolean
+        is_starred:
+          type: boolean
+        is_important:
+          type: boolean
+        has_attachment:
+          type: boolean
+        date:
+          type: string
+    EmailPage:
+      type: object
+      additionalProperties: true
+      properties:
+        emails:
+          type: array
+          items:
+            $ref: '#/components/schemas/Email'
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total_pages:
+          type: integer
+    Folder:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: integer
+          format: int64
+        account_id:
+          type: integer
+          format: int64
+        parent_id:
+          type: integer
+          format: int64
+          nullable: true
+        name:
+          type: string
+        display_name:
+          type: string
+        path:
+          type: string
+        type:
+          type: string
+        unread_count:
+          type: integer
+        total_count:
+          type: integer
+    EmailGroup:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        color:
+          type: string
+        sort_order:
+          type: integer
+        is_default:
+          type: boolean
+        system_key:
+          type: string
+          nullable: true
+    Attachment:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: integer
+          format: int64
+        email_id:
+          type: integer
+          format: int64
+          nullable: true
+        user_id:
+          type: integer
+          format: int64
+          nullable: true
+        filename:
+          type: string
+        content_type:
+          type: string
+        size:
+          type: integer
+          format: int64
+        is_inline:
+          type: boolean
+        is_downloaded:
+          type: boolean

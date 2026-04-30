@@ -12,7 +12,7 @@ YELLOW = \033[1;33m
 RED = \033[0;31m
 NC = \033[0m # No Color
 
-.PHONY: help build deploy start stop restart logs clean backup restore health
+.PHONY: help build deploy start stop restart logs clean backup restore health lint-openapi check-openapi-routes check-frontend-sdk-facade generate-api-backend generate-api-frontend generate-api check-api-generated
 
 # 默认目标
 help:
@@ -43,6 +43,32 @@ help:
 	@echo "  make logs                # 查看日志"
 	@echo "  make backup              # 备份数据"
 	@echo "  make restore BACKUP_DIR=./backup-20240101  # 恢复数据"
+
+lint-openapi:
+	@echo "$(GREEN)Linting OpenAPI contract...$(NC)"
+	@cd frontend && pnpm openapi:lint
+
+check-openapi-routes:
+	@echo "$(GREEN)Checking OpenAPI route coverage...$(NC)"
+	@node scripts/check-openapi-routes.mjs
+
+check-frontend-sdk-facade:
+	@echo "$(GREEN)Checking frontend SDK facade mappings...$(NC)"
+	@node scripts/check-frontend-sdk-facade.mjs
+
+generate-api-backend:
+	@echo "$(GREEN)Generating backend OpenAPI bindings...$(NC)"
+	@mkdir -p backend/internal/api/generated
+	@cd backend && go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0 -config ../openapi/oapi-codegen.yaml ../openapi/firemail.yaml
+
+generate-api-frontend:
+	@echo "$(GREEN)Generating frontend OpenAPI SDK...$(NC)"
+	@cd frontend && pnpm generate:api
+
+generate-api: generate-api-backend generate-api-frontend
+
+check-api-generated: lint-openapi check-openapi-routes check-frontend-sdk-facade generate-api
+	@git diff --exit-code -- backend/internal/api/generated frontend/src/api/generated
 
 # 构建镜像
 build:

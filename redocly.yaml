@@ -1,0 +1,9 @@
+apis:
+  firemail@v1:
+    root: openapi/firemail.yaml
+extends:
+  - recommended
+rules:
+  info-license-strict: off
+  operation-4xx-response: off
+  no-unused-components: warn
