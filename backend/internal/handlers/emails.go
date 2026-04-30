@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -227,7 +229,7 @@ func (h *Handler) MarkEmailAsRead(c *gin.Context) {
 
 	err := h.emailService.MarkEmailAsRead(c.Request.Context(), userID, emailID)
 	if err != nil {
-		h.respondWithError(c, http.StatusBadRequest, "Failed to mark email as read: "+err.Error())
+		h.respondWithEmailReadStateError(c, userID, emailID, services.EmailReadStateOperationMarkRead, err)
 		return
 	}
 
@@ -248,11 +250,54 @@ func (h *Handler) MarkEmailAsUnread(c *gin.Context) {
 
 	err := h.emailService.MarkEmailAsUnread(c.Request.Context(), userID, emailID)
 	if err != nil {
-		h.respondWithError(c, http.StatusBadRequest, "Failed to mark email as unread: "+err.Error())
+		h.respondWithEmailReadStateError(c, userID, emailID, services.EmailReadStateOperationMarkUnread, err)
 		return
 	}
 
 	h.respondWithSuccess(c, nil, "Email marked as unread")
+}
+
+func (h *Handler) respondWithEmailReadStateError(c *gin.Context, userID, emailID uint, operation string, err error) {
+	statusCode, code, message := emailReadStateHTTPError(operation, err)
+	if code != "" {
+		log.Printf("Email read-state update failed: user_id=%d email_id=%d operation=%s code=%s error=%v", userID, emailID, operation, code, err)
+		c.JSON(statusCode, ErrorResponse{
+			Error:   http.StatusText(statusCode),
+			Message: message,
+			Code:    code,
+		})
+		return
+	}
+
+	h.respondWithError(c, statusCode, message)
+}
+
+func emailReadStateHTTPError(operation string, err error) (int, string, string) {
+	action := "mark email as read"
+	if operation == services.EmailReadStateOperationMarkUnread {
+		action = "mark email as unread"
+	}
+	if err == nil {
+		return http.StatusInternalServerError, "", fmt.Sprintf("Failed to %s", action)
+	}
+
+	var readStateErr *services.EmailReadStateError
+	if errors.As(err, &readStateErr) {
+		switch readStateErr.Code {
+		case services.EmailReadStateNotSyncableCode:
+			return http.StatusConflict, readStateErr.Code, fmt.Sprintf("Cannot %s: %s", action, readStateErr.Error())
+		case services.EmailReadStateRemoteSyncFailedCode:
+			return http.StatusBadGateway, readStateErr.Code, fmt.Sprintf("Remote sync failed while trying to %s: %s", action, readStateErr.Error())
+		default:
+			return http.StatusBadRequest, readStateErr.Code, fmt.Sprintf("Failed to %s: %s", action, readStateErr.Error())
+		}
+	}
+
+	if err != nil && err.Error() == "email not found" {
+		return http.StatusNotFound, "", "Email not found"
+	}
+
+	return http.StatusBadRequest, "", fmt.Sprintf("Failed to %s: %s", action, err.Error())
 }
 
 // ToggleEmailStar 切换邮件星标

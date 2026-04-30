@@ -100,6 +100,43 @@ type EmailServiceImpl struct {
 	markAccountAsReadJobRunner func(ctx context.Context, userID, accountID uint) error
 }
 
+const (
+	EmailReadStateNotSyncableCode      = "EMAIL_READ_STATE_NOT_SYNCABLE"
+	EmailReadStateRemoteSyncFailedCode = "EMAIL_READ_STATE_REMOTE_SYNC_FAILED"
+	EmailReadStateOperationMarkRead    = "mark_read"
+	EmailReadStateOperationMarkUnread  = "mark_unread"
+)
+
+// EmailReadStateError marks read/unread failures that must be exposed as
+// stable API errors instead of opaque generic failures.
+type EmailReadStateError struct {
+	Code      string
+	Operation string
+	Err       error
+}
+
+func (e *EmailReadStateError) Error() string {
+	if e == nil || e.Err == nil {
+		return ""
+	}
+	return e.Err.Error()
+}
+
+func (e *EmailReadStateError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func newEmailReadStateError(code, operation string, err error) error {
+	return &EmailReadStateError{
+		Code:      code,
+		Operation: operation,
+		Err:       err,
+	}
+}
+
 // NewEmailService 创建邮件服务实例
 func NewEmailService(db *gorm.DB, providerFactory *providers.ProviderFactory, eventPublisher sse.EventPublisher) EmailService {
 	return &EmailServiceImpl{
@@ -1493,45 +1530,81 @@ func (s *EmailServiceImpl) setEmailReadState(ctx context.Context, userID, emailI
 	if !isRead {
 		unreadDeltaValue = 1
 	}
+	operation := EmailReadStateOperationMarkRead
+	if !isRead {
+		operation = EmailReadStateOperationMarkUnread
+	}
 
 	if email.UID == 0 {
-		return fmt.Errorf("email cannot sync read state to server: missing UID")
+		return newEmailReadStateError(
+			EmailReadStateNotSyncableCode,
+			operation,
+			fmt.Errorf("email cannot sync read state to server: missing UID"),
+		)
 	}
 
 	if email.Folder == nil || email.Folder.GetFullPath() == "" {
-		return fmt.Errorf("email cannot sync read state to server: missing folder path")
+		return newEmailReadStateError(
+			EmailReadStateNotSyncableCode,
+			operation,
+			fmt.Errorf("email cannot sync read state to server: missing folder path"),
+		)
 	}
 
 	provider, err := s.providerFactory.CreateProviderForAccount(&email.Account)
 	if err != nil {
-		return fmt.Errorf("failed to create provider: %w", err)
+		return newEmailReadStateError(
+			EmailReadStateRemoteSyncFailedCode,
+			operation,
+			fmt.Errorf("failed to create provider: %w", err),
+		)
 	}
 
 	s.setupProviderTokenCallback(provider)
 
 	if err := provider.Connect(ctx, &email.Account); err != nil {
-		return fmt.Errorf("failed to connect to email server: %w", err)
+		return newEmailReadStateError(
+			EmailReadStateRemoteSyncFailedCode,
+			operation,
+			fmt.Errorf("failed to connect to email server: %w", err),
+		)
 	}
 	defer provider.Disconnect()
 
 	imapClient := provider.IMAPClient()
 	if imapClient == nil {
-		return fmt.Errorf("IMAP client not available")
+		return newEmailReadStateError(
+			EmailReadStateRemoteSyncFailedCode,
+			operation,
+			fmt.Errorf("IMAP client not available"),
+		)
 	}
 
 	if _, err := imapClient.SelectFolder(ctx, email.Folder.GetFullPath()); err != nil {
-		return fmt.Errorf("failed to select folder: %w", err)
+		return newEmailReadStateError(
+			EmailReadStateRemoteSyncFailedCode,
+			operation,
+			fmt.Errorf("failed to select folder: %w", err),
+		)
 	}
 
 	uids := []uint32{email.UID}
 	if isRead {
 		if err := imapClient.MarkAsRead(ctx, uids); err != nil {
-			return fmt.Errorf("failed to mark email as read on server: %w", err)
+			return newEmailReadStateError(
+				EmailReadStateRemoteSyncFailedCode,
+				operation,
+				fmt.Errorf("failed to mark email as read on server: %w", err),
+			)
 		}
 		email.MarkAsRead()
 	} else {
 		if err := imapClient.MarkAsUnread(ctx, uids); err != nil {
-			return fmt.Errorf("failed to mark email as unread on server: %w", err)
+			return newEmailReadStateError(
+				EmailReadStateRemoteSyncFailedCode,
+				operation,
+				fmt.Errorf("failed to mark email as unread on server: %w", err),
+			)
 		}
 		email.MarkAsUnread()
 	}

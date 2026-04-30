@@ -54,7 +54,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 | T17 | done | Fix auth refresh so every valid token can be rolled forward. | Fresh token refresh returns success; invalid/expired tokens still fail; OpenAPI/generated artifacts and tests pass. |
 | T18 | done | Fix email-group default semantics so user default groups can be renamed safely. | First custom group can be updated; system groups remain protected; default delete protection remains tested. |
 | T19 | done | Convert batch account mark-read to an asynchronous, observable job. | API returns accepted job data quickly; job status/SSE progress are test-covered; no 60s request timeout. |
-| T20 | pending | Stabilize single-email read-state remote sync errors and frontend rewrite behavior. | Remote/provider failures return typed errors, not opaque 500; direct backend and frontend rewrite behavior match. |
+| T20 | done | Stabilize single-email read-state remote sync errors and frontend rewrite behavior. | Remote/provider failures return typed errors, not opaque 500; direct backend and frontend rewrite behavior match. |
 | T21 | pending | Fix dedup stats/report fallback and schedule defaults/validation. | Stats/report no longer 500 without enhanced dedup; empty schedule uses defaults; invalid schedule returns 400. |
 | T22 | pending | Make admin soft-delete cleanup usable with an empty body. | Empty body uses default retention days; OpenAPI request body is optional; focused tests pass. |
 | T23 | pending | Harden SSE heartbeat/reconnect behavior and redact frontend token logs. | 120s browser smoke receives heartbeat; console/HAR/log scans contain no token/JWT leakage. |
@@ -640,6 +640,43 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
   - `make check-api-generated`: passed; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
   - `git diff --check`: passed.
 
+### T20 - Single Email Read-State Remote Error Semantics
+
+- ID: T20
+- Status: done
+- Goal: Stabilize `PUT /api/v1/emails/{id}/read` and `/unread` remote/provider failure semantics so direct backend and frontend rewrite callers see typed JSON errors instead of opaque 500s.
+- Code To Inspect: `backend/internal/services/email_service.go`, `backend/internal/handlers/emails.go`, `backend/internal/services/email_state_consistency_test.go`, `openapi/firemail.yaml`, `frontend/next.config.ts`, `frontend/src/lib/api.ts`, `docs/e2e-issue-investigation.md`.
+- Allowed Changes: read-state service error typing, handler error mapping/logging, OpenAPI generated artifacts, focused backend tests, minimal frontend rewrite/API handling if needed, task file.
+- Implementation Notes:
+  - Initial finding: `setEmailReadState` already preserves strong consistency by returning before local DB changes if UID/folder/provider/IMAP writeback fails.
+  - Initial finding: handler currently maps every service error to untyped 400, while OpenAPI only documents 200/401/404, so provider failures are neither contract-described nor machine-readable.
+  - Initial finding: frontend production builds use `NEXT_PUBLIC_API_BASE_URL=/api/v1`, so the browser calls Next's same-origin rewrite; typed backend JSON status is needed for rewrite parity.
+  - Added `services.EmailReadStateError` with stable codes `EMAIL_READ_STATE_NOT_SYNCABLE` and `EMAIL_READ_STATE_REMOTE_SYNC_FAILED`.
+  - `MarkEmailAsRead` / `MarkEmailAsUnread` now classify missing UID/folder path as 409-style local state conflicts and provider/create/connect/select/mark failures as 502-style upstream mailbox failures.
+  - Handler responses now include `ErrorResponse.code`, log route-safe IDs/status/code, and preserve `404` for missing emails.
+  - OpenAPI now documents 409 and 502 for `/api/v1/emails/{id}/read` and `/unread`; generated Go/TS artifacts were refreshed.
+  - Frontend API error handling now has explicit 409/502/503 branches while preserving `ApiError.status` and backend response payload.
+- Self Review Checklist:
+  - [x] Missing UID/folder path returns a typed local conflict-style error.
+  - [x] Provider connect/select/mark read/writeback failures return a typed upstream error and do not mutate local state.
+  - [x] `/read` and `/unread` OpenAPI responses include typed failure statuses.
+  - [x] Frontend API errors preserve status and backend response payload for caller/toast handling.
+  - [x] Focused and full acceptance gates pass.
+- Acceptance Commands:
+  - `cd backend && go test ./internal/services -run 'TestMarkEmailAsRead|TestMarkEmailAsUnread|TestEmailReadState'`
+  - `cd backend && go test ./internal/handlers -run 'Test.*EmailReadState'`
+  - `cd backend && go test ./...`
+  - `cd frontend && pnpm type-check`
+  - `make check-api-generated`
+  - `git diff --check`
+- Exit Result: passed on 2026-04-30.
+  - `cd backend && go test ./internal/services -run 'TestMarkEmailAsRead|TestMarkEmailAsUnread|TestEmailReadState'`: passed.
+  - `cd backend && go test ./internal/handlers -run 'Test.*EmailReadState'`: passed.
+  - `cd backend && go test ./...`: passed.
+  - `cd frontend && pnpm type-check`: passed.
+  - `make check-api-generated`: passed; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
+  - `git diff --check`: passed.
+
 ## Findings
 
 - F001: Phase 1 stable route boundary should start from real registrations in `backend/cmd/firemail/main.go`, plus attachment routes registered through `AttachmentHandler.RegisterRoutes(api)`.
@@ -659,12 +696,14 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - F015: Search token parsing was mutating `SearchEmailsRequest`; cache invalidation was global because email-list cache keys hid the user ID behind an MD5 hash. T14 fixed both with local request copies and user-visible cache key prefixes.
 - F016: Final state is reproducible through `make check-api-generated`; generated server/SDK artifacts are still newly untracked in this worktree until the migration commit is staged/committed, so tracked generated drift is checked explicitly by path.
 - F017: Batch account mark-read cannot stay in the request path because provider `Connect`/`SelectFolder`/`MarkAsRead` latency is remote-service-bound. T19 makes it a persisted `mailbox_jobs` workflow and exposes status at `GET /api/v1/accounts/batch/mark-read/{job_id}`.
+- F018: Single-message read/unread remains strong-consistency by design, but remote IMAP failures need stable API semantics. T20 preserves no-local-mutation-on-failure and exposes typed 409/502 JSON errors so Next rewrite callers can surface the backend reason instead of an opaque 500.
 
 ## Errors Encountered
 
 - E014: T17 `make check-api-generated` failed after adding a non-wire auth refresh OpenAPI description because Orval regenerated only the `refreshToken` JSDoc. Different strategy applied: remove the description-only OpenAPI edit, keep the behavioral fix in code/tests, and rerun the generated check.
 - E015: T18 initial focused format/test command was launched from `backend/` while still using repository-root file paths, so `gofmt` reported `lstat backend/internal/services/...: no such file or directory`. Different strategy applied: rerun the same command with paths relative to `backend/`.
 - E016: T19 initial focused handler format/test command was launched from `backend/` while still using the repository-root path `backend/internal/handlers/email_accounts_test.go`, so `gofmt` reported `lstat backend/internal/handlers/email_accounts_test.go: no such file or directory`. Different strategy applied: rerun with `internal/handlers/email_accounts_test.go` relative to `backend/`.
+- E017: T20 initial focused format/test command was launched from `backend/` while still using repository-root paths for service and handler files, so `gofmt` reported `lstat backend/internal/services/email_service.go: no such file or directory`. Different strategy applied: rerun with `internal/...` paths relative to `backend/`.
 - E001: Initial Redocly lint failed because `SuccessResponse.data` used `nullable` without a sibling `type`, and `/health` lacked an explicit security declaration. Different strategy applied: define `data` as a nullable object and add `security: []` to the public health operation.
 - E002: Initial Orval config generated schema files under a directory named `firemail.schemas.ts`, causing poor `from './.'` imports. Different strategy applied: use `frontend/src/api/generated/model` as the schema directory.
 - E003: `pnpm type-check` failed because `orval.config.ts` used unsupported `output.prettier`. Different strategy applied: remove that field and rely on Orval's generated output formatting.
@@ -699,6 +738,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - T14 passed on 2026-04-30: search side effects, cache isolation, reply subject logic, and compose HTML policy are covered by focused tests and full gates.
 - T15 passed on 2026-04-30: README generation docs were added and final backend, frontend, OpenAPI/codegen, route drift, SDK drift, race, migration/CRUD, generated drift, and diff checks passed.
 - T19 passed on 2026-04-30: batch account mark-read now returns an accepted persisted job, job status is user-scoped, SSE progress is emitted, backend/frontend/generated gates pass, and no new Redocly warning category remains.
+- T20 passed on 2026-04-30: single-email read/unread remote failures now return typed 409/502 JSON errors with no local state mutation on failure; OpenAPI/generated SDK/backend adapter and frontend type-check gates pass.
 
 ## Deferred Decisions
 

@@ -437,8 +437,14 @@ type AttachmentsSuccess struct {
 	Success bool          `json:"success"`
 }
 
+// BadGateway defines model for BadGateway.
+type BadGateway = ErrorResponse
+
 // BadRequest defines model for BadRequest.
 type BadRequest = ErrorResponse
+
+// Conflict defines model for Conflict.
+type Conflict = ErrorResponse
 
 // EmailAccountSuccess defines model for EmailAccountSuccess.
 type EmailAccountSuccess struct {

@@ -27,6 +27,7 @@ type fakeIMAPClient struct {
 	statusFolders   []string
 	markReadErr     error
 	markUnreadErr   error
+	selectErr       error
 	moveErr         error
 	deleteErr       error
 }
@@ -44,6 +45,9 @@ func (c *fakeIMAPClient) ListFolders(context.Context) ([]*providers.FolderInfo, 
 }
 func (c *fakeIMAPClient) SelectFolder(_ context.Context, folderName string) (*providers.FolderStatus, error) {
 	c.selectedFolders = append(c.selectedFolders, folderName)
+	if c.selectErr != nil {
+		return nil, c.selectErr
+	}
 	return &providers.FolderStatus{Name: folderName}, nil
 }
 func (c *fakeIMAPClient) CreateFolder(context.Context, string) error { return nil }
@@ -339,6 +343,10 @@ func TestMarkEmailAsReadFailsWhenServerWriteFails(t *testing.T) {
 	err := env.service.MarkEmailAsRead(ctx, env.user.ID, email.ID)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to mark email as read on server")
+	var readStateErr *EmailReadStateError
+	require.True(t, errors.As(err, &readStateErr))
+	require.Equal(t, EmailReadStateRemoteSyncFailedCode, readStateErr.Code)
+	require.Equal(t, EmailReadStateOperationMarkRead, readStateErr.Operation)
 
 	var stored models.Email
 	require.NoError(t, env.db.First(&stored, email.ID).Error)
@@ -353,6 +361,68 @@ func TestMarkEmailAsReadFailsWhenServerWriteFails(t *testing.T) {
 	require.Equal(t, 1, folder.UnreadEmails)
 
 	require.Nil(t, findEventByType(env.publisher.events, sse.EventEmailRead))
+}
+
+func TestMarkEmailAsReadReportsNotSyncableWhenMissingUID(t *testing.T) {
+	env := setupEmailStateServiceTestEnv(t)
+	ctx := context.Background()
+
+	email := env.createEmail(t, env.inbox, 0, "missing-uid", false, false)
+	require.NoError(t, env.db.Model(env.account).Update("unread_emails", 1).Error)
+	require.NoError(t, env.db.Model(env.inbox).Update("unread_emails", 1).Error)
+
+	err := env.service.MarkEmailAsRead(ctx, env.user.ID, email.ID)
+	require.Error(t, err)
+	var readStateErr *EmailReadStateError
+	require.True(t, errors.As(err, &readStateErr))
+	require.Equal(t, EmailReadStateNotSyncableCode, readStateErr.Code)
+	require.Equal(t, EmailReadStateOperationMarkRead, readStateErr.Operation)
+
+	var stored models.Email
+	require.NoError(t, env.db.First(&stored, email.ID).Error)
+	require.False(t, stored.IsRead)
+	require.Empty(t, env.provider.imap.markReadCalls)
+}
+
+func TestMarkEmailAsReadReportsRemoteSelectFailure(t *testing.T) {
+	env := setupEmailStateServiceTestEnv(t)
+	ctx := context.Background()
+
+	email := env.createEmail(t, env.work, 2101, "select-fail", false, false)
+	env.provider.imap.selectErr = fmt.Errorf("archive folder unavailable")
+
+	err := env.service.MarkEmailAsRead(ctx, env.user.ID, email.ID)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to select folder")
+	var readStateErr *EmailReadStateError
+	require.True(t, errors.As(err, &readStateErr))
+	require.Equal(t, EmailReadStateRemoteSyncFailedCode, readStateErr.Code)
+	require.Equal(t, EmailReadStateOperationMarkRead, readStateErr.Operation)
+
+	var stored models.Email
+	require.NoError(t, env.db.First(&stored, email.ID).Error)
+	require.False(t, stored.IsRead)
+	require.Empty(t, env.provider.imap.markReadCalls)
+}
+
+func TestMarkEmailAsUnreadReportsRemoteWriteFailure(t *testing.T) {
+	env := setupEmailStateServiceTestEnv(t)
+	ctx := context.Background()
+
+	email := env.createEmail(t, env.inbox, 2201, "unread-fail", true, false)
+	env.provider.imap.markUnreadErr = fmt.Errorf("imap unread failed")
+
+	err := env.service.MarkEmailAsUnread(ctx, env.user.ID, email.ID)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to mark email as unread on server")
+	var readStateErr *EmailReadStateError
+	require.True(t, errors.As(err, &readStateErr))
+	require.Equal(t, EmailReadStateRemoteSyncFailedCode, readStateErr.Code)
+	require.Equal(t, EmailReadStateOperationMarkUnread, readStateErr.Operation)
+
+	var stored models.Email
+	require.NoError(t, env.db.First(&stored, email.ID).Error)
+	require.True(t, stored.IsRead)
 }
 
 func TestMarkFolderAsReadSyncsRemoteAndPublishesBulkEvent(t *testing.T) {

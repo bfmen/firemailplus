@@ -16,8 +16,10 @@ import type {
   AttachmentSuccessResponse,
   AttachmentsSuccessResponse,
   BackupPathRequest,
+  BadGatewayResponse,
   BadRequestResponse,
   ChangePasswordRequest,
+  ConflictResponse,
   DetectProviderParams,
   EmailAccountSuccessResponse,
   EmailAccountsSuccessResponse,
@@ -3629,10 +3631,20 @@ export type markEmailAsReadResponse404 = {
   status: 404
 }
 
+export type markEmailAsReadResponse409 = {
+  data: ConflictResponse
+  status: 409
+}
+
+export type markEmailAsReadResponse502 = {
+  data: BadGatewayResponse
+  status: 502
+}
+
 export type markEmailAsReadResponseSuccess = (markEmailAsReadResponse200) & {
   headers: Headers;
 };
-export type markEmailAsReadResponseError = (markEmailAsReadResponse401 | markEmailAsReadResponse404) & {
+export type markEmailAsReadResponseError = (markEmailAsReadResponse401 | markEmailAsReadResponse404 | markEmailAsReadResponse409 | markEmailAsReadResponse502) & {
   headers: Headers;
 };
 
@@ -3684,10 +3696,20 @@ export type markEmailAsUnreadResponse404 = {
   status: 404
 }
 
+export type markEmailAsUnreadResponse409 = {
+  data: ConflictResponse
+  status: 409
+}
+
+export type markEmailAsUnreadResponse502 = {
+  data: BadGatewayResponse
+  status: 502
+}
+
 export type markEmailAsUnreadResponseSuccess = (markEmailAsUnreadResponse200) & {
   headers: Headers;
 };
-export type markEmailAsUnreadResponseError = (markEmailAsUnreadResponse401 | markEmailAsUnreadResponse404) & {
+export type markEmailAsUnreadResponseError = (markEmailAsUnreadResponse401 | markEmailAsUnreadResponse404 | markEmailAsUnreadResponse409 | markEmailAsUnreadResponse502) & {
   headers: Headers;
 };
 

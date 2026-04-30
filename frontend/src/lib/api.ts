@@ -204,8 +204,17 @@ class ApiClient {
           case 404:
             errorMessage = data.message || '请求的资源不存在';
             break;
+          case 409:
+            errorMessage = data.message || '当前资源状态无法完成该操作';
+            break;
           case 500:
             errorMessage = data.message || '服务器内部错误';
+            break;
+          case 502:
+            errorMessage = data.message || '远端邮箱服务同步失败，请稍后重试';
+            break;
+          case 503:
+            errorMessage = data.message || '服务暂时不可用，请稍后重试';
             break;
           default:
             errorMessage = data.message || `请求失败 (${response.status})`;
