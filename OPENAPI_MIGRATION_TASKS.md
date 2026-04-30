@@ -60,7 +60,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 | T23 | done | Harden SSE heartbeat/reconnect behavior and redact frontend token logs. | 120s browser smoke receives heartbeat; console/HAR/log scans contain no token/JWT leakage. |
 | T24 | done | Fix search page folder loading and query/empty-state behavior. | HAR has no folder request without `account_id`; search URL and empty state reflect current query. |
 | T25 | done | Improve Docker build resilience around external base images. | Build supports mirror/base-image overrides and retry; Docker or documented fallback validation passes. |
-| T26 | pending | Add reproducible local production E2E harness and reporting. | Backend curl and frontend jshook flows produce redacted artifacts under `/tmp/firemailplus-e2e-artifacts`. |
+| T26 | done | Add reproducible local production E2E harness and reporting. | Backend curl and frontend jshook flows produce redacted artifacts under `/tmp/firemailplus-e2e-artifacts`. |
 | T27 | pending | Rebuild, deploy a clean test instance, import the two Outlook accounts, and rerun full E2E. | Backend curl and frontend jshook pass with no unexpected 4xx/5xx/timeout/leaks. |
 | T28 | pending | Record final E2E acceptance and cleanup. | Task file records final commands, commits, risks, and clean generated/worktree status. |
 
@@ -868,6 +868,43 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
   - `make check-api-generated`: passed; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
   - `git diff --check`: passed.
 
+### T26 - Local Production E2E Harness And Reporting
+
+- ID: T26
+- Status: done
+- Goal: Add a reproducible local production E2E harness that runs backend curl-style checks, defines the frontend jshook smoke flow, redacts sensitive evidence, and writes artifacts under `/tmp/firemailplus-e2e-artifacts`.
+- Code To Inspect: `docs/e2e-issue-investigation.md`, existing `scripts`, `frontend/next.config.ts`, `README.md`, backend public API routes, frontend login/search/mailbox flows.
+- Allowed Changes: local E2E scripts/docs, package-independent validation scripts, task file. Do not commit real Outlook credentials or raw E2E artifacts.
+- Implementation Notes:
+  - Initial finding: prior E2E artifacts lived under `/tmp/firemailplus-e2e-artifacts`, but there is no committed reproducible harness to recreate backend curl checks or frontend jshook evidence.
+  - Initial finding: frontend jshook evidence needs explicit state cleanup, login evidence, console/HAR redaction, SSE heartbeat observation, folder-request scan, and search empty-state/result checks.
+  - Initial finding: backend curl checks should be safe by default and accept credentials through environment variables only.
+  - Added `scripts/e2e-local-production.mjs`, which writes redacted `backend-curl-report.json`, `E2E_REPORT.md`, `frontend-jshook-plan.json`, and `RUN_MANIFEST.json` under `/tmp/firemailplus-e2e-artifacts`.
+  - Harness supports `--dry-run`, `--clean`, `--backend-only`, `--frontend-only`, and `--frontend-evidence` for redacting external jshook evidence.
+  - Backend checks use environment-provided admin credentials only and cover health, providers, login, auth refresh, accounts, groups, SSE stats, search, and per-account folder listing when available.
+  - Frontend jshook plan defines the T27 browser flow: clear state, login, mailbox load, 120s SSE observation, search check, folder-request scan, and redacted artifact output.
+  - Added `scripts/check-e2e-harness.mjs` and `docs/local-production-e2e.md`.
+- Self Review Checklist:
+  - [x] Harness writes machine-readable and Markdown reports under `/tmp/firemailplus-e2e-artifacts`.
+  - [x] Harness never requires committing credentials and redacts tokens/passwords/JWT-like strings.
+  - [x] Backend checks can run against a local production instance with admin credentials from env.
+  - [x] Frontend jshook flow is deterministic and produces a redacted plan/artifact contract for T27.
+  - [x] Static harness validation and full gates pass.
+- Acceptance Commands:
+  - `node scripts/check-e2e-harness.mjs`
+  - `node scripts/e2e-local-production.mjs --dry-run --clean`
+  - `cd backend && go test ./...`
+  - `cd frontend && pnpm type-check`
+  - `make check-api-generated`
+  - `git diff --check`
+- Exit Result: passed on 2026-04-30.
+  - `node scripts/check-e2e-harness.mjs`: passed.
+  - `node scripts/e2e-local-production.mjs --dry-run --clean`: passed and wrote a clean artifact set under `/tmp/firemailplus-e2e-artifacts`.
+  - `cd backend && go test ./...`: passed.
+  - `cd frontend && pnpm type-check`: passed.
+  - `make check-api-generated`: passed; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
+  - `git diff --check`: passed.
+
 ## Findings
 
 - F001: Phase 1 stable route boundary should start from real registrations in `backend/cmd/firemail/main.go`, plus attachment routes registered through `AttachmentHandler.RegisterRoutes(api)`.
@@ -893,6 +930,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - F021: SSE query-token compatibility still requires a credential-bearing browser request URL, but frontend code must never echo that URL or token into console output. T23 separates the real EventSource URL builder from sanitized logging metadata and closes stale EventSource objects before managed reconnects.
 - F022: Folder listing is account-scoped by backend contract. Reusing optional `AccountIdQuery` for `listFolders` made the generated SDK and frontend facade permit invalid no-account requests, so `GET /api/v1/folders` needs a dedicated required account-id parameter while email list/search filters remain optional.
 - F023: Docker base-image pull failures happen before application build logic. The resilient fix is operator-controlled base image indirection plus retry/backoff, not changing application code or hiding the failure behind a non-Docker fallback.
+- F024: Reproducible E2E needs a committed harness but not committed evidence. The durable contract is script/docs plus redacted artifacts under `/tmp/firemailplus-e2e-artifacts`, with real account credentials supplied only through environment variables at execution time.
 
 ## Errors Encountered
 
@@ -943,6 +981,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - T23 passed on 2026-04-30: SSE frontend logs are statically guarded against token/full-URL output, heartbeat timeout and reconnect paths close stale EventSource instances, proxy-safe SSE headers are tested, and full backend/frontend/generated/diff gates pass.
 - T24 passed on 2026-04-30: search filters no longer request folders without `account_id`, listFolders generated contracts require account id, typed searches synchronize URL/current empty state, and frontend/backend/OpenAPI/generated/diff gates pass.
 - T25 passed on 2026-04-30: Dockerfile, Compose, local build script, and GitHub workflow support base-image overrides; local build script retries transient registry failures; docs/static validation and full backend/frontend/generated gates pass.
+- T26 passed on 2026-04-30: local production E2E harness, jshook plan, redaction contract, docs, dry-run artifacts, backend/frontend/generated gates, and diff checks pass.
 
 ## Deferred Decisions
 
