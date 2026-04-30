@@ -19,6 +19,10 @@ const nextConfig: NextConfig = {
     // 将前端 /api/* 代理到后端 8080 端口，便于单容器部署时同域调用
     return [
       {
+        source: '/api/v1/health',
+        destination: 'http://localhost:8080/health',
+      },
+      {
         source: '/api/:path*',
         destination: 'http://localhost:8080/api/:path*',
       },

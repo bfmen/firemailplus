@@ -164,11 +164,15 @@ func runMigrations(dbPath string) error {
 
 	// 创建迁移服务
 	migrationService := migration.NewMigrationService(nil)
+	migrationsPath, err := resolveMigrationsPath()
+	if err != nil {
+		return fmt.Errorf("failed to resolve migrations path: %w", err)
+	}
 
 	// 配置迁移参数
 	config := migration.MigrationConfig{
 		DatabaseURL:    "", // SQLite不需要URL
-		MigrationsPath: "database/migrations",
+		MigrationsPath: migrationsPath,
 		DatabaseName:   "sqlite3",
 		TableName:      "schema_migrations",
 	}
@@ -187,6 +191,35 @@ func runMigrations(dbPath string) error {
 
 	log.Println("Database migration completed successfully")
 	return nil
+}
+
+func resolveMigrationsPath() (string, error) {
+	candidates := []string{
+		"database/migrations",
+		"backend/database/migrations",
+	}
+
+	for _, candidate := range candidates {
+		absPath, err := filepath.Abs(candidate)
+		if err != nil {
+			return "", err
+		}
+
+		info, err := os.Stat(absPath)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+
+		matches, err := filepath.Glob(filepath.Join(absPath, "*.up.sql"))
+		if err != nil {
+			return "", err
+		}
+		if len(matches) > 0 {
+			return absPath, nil
+		}
+	}
+
+	return "", fmt.Errorf("no migration directory with .up.sql files found")
 }
 
 // 注意：索引和约束创建逻辑已移至迁移文件中

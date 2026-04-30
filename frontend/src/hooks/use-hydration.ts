@@ -3,6 +3,7 @@
  * 提供一致的水合状态检查和加载UI
  */
 
+import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/lib/store';
 
 interface HydrationState {
@@ -14,11 +15,21 @@ interface HydrationState {
  * 获取水合状态
  */
 export function useHydration(): HydrationState {
-  const { isHydrated } = useAuthStore();
+  const { isHydrated, setHydrated } = useAuthStore();
+  const [clientHydrated, setClientHydrated] = useState(false);
+
+  useEffect(() => {
+    setClientHydrated(true);
+    if (!isHydrated) {
+      setHydrated();
+    }
+  }, [isHydrated, setHydrated]);
+
+  const hydrated = isHydrated || clientHydrated;
 
   return {
-    isHydrated,
-    isLoading: !isHydrated,
+    isHydrated: hydrated,
+    isLoading: !hydrated,
   };
 }
 

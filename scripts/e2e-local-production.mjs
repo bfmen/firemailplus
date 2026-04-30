@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { fileURLToPath } from 'node:url';
 
 const DEFAULT_ARTIFACT_DIR = '/tmp/firemailplus-e2e-artifacts';
 const DEFAULT_BASE_URL = 'http://localhost:3000';
@@ -14,6 +15,7 @@ const cleanArtifacts = args.has('--clean');
 const artifactDir = resolve(process.env.E2E_ARTIFACT_DIR || DEFAULT_ARTIFACT_DIR);
 const baseUrl = stripTrailingSlash(process.env.E2E_BASE_URL || DEFAULT_BASE_URL);
 const apiBaseUrl = stripTrailingSlash(process.env.E2E_API_BASE_URL || `${baseUrl}/api/v1`);
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const adminUsername = process.env.E2E_ADMIN_USERNAME || process.env.ADMIN_USERNAME || '';
 const adminPassword = process.env.E2E_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || '';
 const searchPrefix = process.env.E2E_SEARCH_PREFIX || `FMP-E2E-${new Date().toISOString().slice(0, 10)}`;
@@ -154,7 +156,6 @@ async function runBackendChecks() {
   }
 
   await requestCheck('health', 'GET', `${baseUrl}/api/v1/health`);
-  await requestCheck('providers', 'GET', '/providers');
 
   if (!adminUsername || !adminPassword) {
     backendReport.skipped.push('auth checks skipped: E2E_ADMIN_USERNAME/E2E_ADMIN_PASSWORD not set');
@@ -173,6 +174,7 @@ async function runBackendChecks() {
 
   await requestCheck('auth me', 'GET', '/auth/me', { token });
   await requestCheck('auth refresh', 'POST', '/auth/refresh', { token });
+  await requestCheck('providers', 'GET', '/providers', { token });
   const accountsResult = await requestCheck('accounts list', 'GET', '/accounts', { token });
   await requestCheck('groups list', 'GET', '/groups', { token });
   await requestCheck('sse stats', 'GET', '/sse/stats', { token });
@@ -188,9 +190,11 @@ async function runBackendChecks() {
 }
 
 function buildFrontendJshookPlan() {
+  const standaloneAssetResult = prepareStandaloneAssets();
   const plan = {
     base_url: baseUrl,
     artifact_dir: artifactDir,
+    standalone_assets: standaloneAssetResult,
     required_env: ['E2E_ADMIN_USERNAME', 'E2E_ADMIN_PASSWORD'],
     output_artifacts: [
       'frontend-jshook-report.json',
@@ -218,6 +222,42 @@ function buildFrontendJshookPlan() {
     ],
   };
   writeArtifact('frontend-jshook-plan.json', plan);
+}
+
+function prepareStandaloneAssets() {
+  const frontendDir = resolve(repoRoot, 'frontend');
+  const standaloneDir = resolve(frontendDir, '.next/standalone');
+  const sourceStatic = resolve(frontendDir, '.next/static');
+  const targetStatic = resolve(standaloneDir, '.next/static');
+  const sourcePublic = resolve(frontendDir, 'public');
+  const targetPublic = resolve(standaloneDir, 'public');
+
+  if (!existsSync(standaloneDir)) {
+    return {
+      status: 'skipped',
+      reason: 'frontend/.next/standalone does not exist; run pnpm build first',
+    };
+  }
+
+  const copied = [];
+  if (existsSync(sourceStatic)) {
+    rmSync(targetStatic, { recursive: true, force: true });
+    mkdirSync(dirname(targetStatic), { recursive: true });
+    cpSync(sourceStatic, targetStatic, { recursive: true });
+    copied.push('.next/static');
+  }
+
+  if (existsSync(sourcePublic)) {
+    rmSync(targetPublic, { recursive: true, force: true });
+    cpSync(sourcePublic, targetPublic, { recursive: true });
+    copied.push('public');
+  }
+
+  return {
+    status: copied.length > 0 ? 'prepared' : 'skipped',
+    copied,
+    target: redact(standaloneDir),
+  };
 }
 
 function ingestFrontendEvidence() {

@@ -47,6 +47,8 @@ node scripts/e2e-local-production.mjs --backend-only --clean
 
 ## Frontend Jshook Flow
 
+The script also prepares local Next.js standalone assets when `frontend/.next/standalone` exists by copying `frontend/.next/static` to `frontend/.next/standalone/.next/static` and `frontend/public` to `frontend/.next/standalone/public`. This mirrors the Dockerfile copy steps and prevents local fallback deployments from serving `/_next/static/**` chunk requests as 404 HTML.
+
 The script writes `frontend-jshook-plan.json`; use it as the browser flow contract in jshook:
 
 1. Clear cookies, localStorage, and sessionStorage.
@@ -61,6 +63,14 @@ If jshook exports raw evidence to a local file, redact it through the harness:
 
 ```bash
 node scripts/e2e-local-production.mjs --frontend-only --frontend-evidence /tmp/raw-frontend-evidence.txt
+```
+
+For a local standalone fallback server after `pnpm build`, run the frontend from the standalone directory so static assets resolve exactly as they do in the production image:
+
+```bash
+node scripts/e2e-local-production.mjs --frontend-only
+cd frontend/.next/standalone
+PORT=3100 HOSTNAME=0.0.0.0 NODE_ENV=production NEXT_PUBLIC_API_BASE_URL=/api/v1 node server.js
 ```
 
 Do not commit `/tmp/firemailplus-e2e-artifacts` or any raw credentials.
