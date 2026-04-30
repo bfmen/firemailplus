@@ -26,6 +26,7 @@ const (
 	EventEmailMoved              EventType = "email_moved"
 	EventFolderReadStateChanged  EventType = "folder_read_state_changed"
 	EventAccountReadStateChanged EventType = "account_read_state_changed"
+	EventMailboxJobUpdated       EventType = "mailbox_job_updated"
 
 	// 邮件发送事件
 	EventEmailSendStarted   EventType = "email_send_started"
@@ -124,6 +125,16 @@ type FolderReadStateEventData struct {
 type AccountReadStateEventData struct {
 	AccountID     uint `json:"account_id"`
 	AffectedCount int  `json:"affected_count"`
+}
+
+// MailboxJobEventData reports progress for asynchronous mailbox jobs.
+type MailboxJobEventData struct {
+	JobID          string `json:"job_id"`
+	Operation      string `json:"operation"`
+	Status         string `json:"status"`
+	ProcessedCount int    `json:"processed_count"`
+	TotalCount     int    `json:"total_count"`
+	ErrorMessage   string `json:"error,omitempty"`
 }
 
 // SyncEventData 同步事件数据
@@ -282,6 +293,24 @@ func NewEmailStatusEvent(emailID, accountID, userID uint, folderID *uint, isRead
 
 	event.AccountID = &accountID
 
+	return event
+}
+
+// NewMailboxJobUpdatedEvent 创建异步邮箱任务进度事件
+func NewMailboxJobUpdatedEvent(jobID, operation, status string, processedCount, totalCount int, errorMessage string, userID uint) *Event {
+	data := &MailboxJobEventData{
+		JobID:          jobID,
+		Operation:      operation,
+		Status:         status,
+		ProcessedCount: processedCount,
+		TotalCount:     totalCount,
+		ErrorMessage:   errorMessage,
+	}
+
+	event := NewEvent(EventMailboxJobUpdated, data, userID)
+	if status == "failed" {
+		event.Priority = PriorityHigh
+	}
 	return event
 }
 

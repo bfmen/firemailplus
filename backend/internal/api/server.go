@@ -54,6 +54,9 @@ func (s *Server) BatchDeleteEmailAccounts(c *gin.Context) { s.handler.BatchDelet
 func (s *Server) BatchMarkAccountsAsRead(c *gin.Context)  { s.handler.BatchMarkAccountsAsRead(c) }
 func (s *Server) BatchSyncEmailAccounts(c *gin.Context)   { s.handler.BatchSyncEmailAccounts(c) }
 func (s *Server) CreateCustomEmailAccount(c *gin.Context) { s.handler.CreateCustomEmailAccount(c) }
+func (s *Server) GetAccountJobStatus(c *gin.Context, _ string) {
+	s.handler.GetAccountJobStatus(c)
+}
 func (s *Server) DeleteEmailAccount(c *gin.Context, _ generated.IdPath) {
 	s.handler.DeleteEmailAccount(c)
 }

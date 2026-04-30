@@ -53,7 +53,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 | T16 | done | Land E2E investigation baseline and append the E2E remediation task chain. | Investigation doc is tracked; task file consistency is fixed; full baseline gates pass; commit created. |
 | T17 | done | Fix auth refresh so every valid token can be rolled forward. | Fresh token refresh returns success; invalid/expired tokens still fail; OpenAPI/generated artifacts and tests pass. |
 | T18 | done | Fix email-group default semantics so user default groups can be renamed safely. | First custom group can be updated; system groups remain protected; default delete protection remains tested. |
-| T19 | pending | Convert batch account mark-read to an asynchronous, observable job. | API returns accepted job data quickly; job status/SSE progress are test-covered; no 60s request timeout. |
+| T19 | done | Convert batch account mark-read to an asynchronous, observable job. | API returns accepted job data quickly; job status/SSE progress are test-covered; no 60s request timeout. |
 | T20 | pending | Stabilize single-email read-state remote sync errors and frontend rewrite behavior. | Remote/provider failures return typed errors, not opaque 500; direct backend and frontend rewrite behavior match. |
 | T21 | pending | Fix dedup stats/report fallback and schedule defaults/validation. | Stats/report no longer 500 without enhanced dedup; empty schedule uses defaults; invalid schedule returns 400. |
 | T22 | pending | Make admin soft-delete cleanup usable with an empty body. | Empty body uses default retention days; OpenAPI request body is optional; focused tests pass. |
@@ -604,6 +604,42 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
   - `make check-api-generated`: passed; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
   - `git diff --check`: passed.
 
+### T19 - Async Batch Account Mark-Read Jobs
+
+- ID: T19
+- Status: done
+- Goal: Convert `POST /api/v1/accounts/batch/mark-read` from synchronous remote IMAP work into an asynchronous, observable job.
+- Code To Inspect: `backend/internal/handlers/email_accounts.go`, `backend/internal/services/email_service.go`, `backend/internal/models`, `backend/database/migrations`, `backend/cmd/firemail/main.go`, `backend/internal/api/server.go`, `openapi/firemail.yaml`, `frontend/src/lib/api.ts`, route/facade drift scripts.
+- Allowed Changes: account batch mark-read implementation/tests, mailbox job model/migration, OpenAPI and generated SDK/server artifacts, route/facade drift checks, task file.
+- Implementation Notes:
+  - Initial finding: the handler synchronously calls `EmailService.MarkAccountsAsRead`, and that method serially calls `MarkAccountAsRead`, which can perform real provider `Connect`, `SelectFolder`, and `MarkAsRead` work on the request context.
+  - Initial finding: there is no existing persisted job model for mailbox account actions, so a small `mailbox_jobs` table is needed to expose durable status after the request returns.
+  - Added `mailbox_jobs` as the durable status table and `models.MailboxJob` as the generated/API response source.
+  - `BatchMarkAccountsAsRead` now validates ownership, creates a queued job, returns `202 Accepted`, and runs remote mark-read work in a detached background context.
+  - Added `GET /api/v1/accounts/batch/mark-read/{job_id}` instead of `/api/v1/accounts/jobs/{job_id}` to avoid introducing a new Redocly ambiguous-path warning against `/api/v1/accounts/{id}/test`.
+  - Added `mailbox_job_updated` SSE events for queued/running/progress/completed/failed status changes.
+  - Added backend service tests for quick return, successful completion, failure recording, SSE progress publication, and user-scoped access; added handler tests for `202` and empty-list `400`.
+- Self Review Checklist:
+  - [x] Batch endpoint returns `202 Accepted` with job data.
+  - [x] Empty account list remains a validation error.
+  - [x] Job status endpoint is user-scoped.
+  - [x] Background work runs outside the request context and updates status/count/error.
+  - [x] OpenAPI routes, generated backend server interface, frontend SDK facade, and drift scripts are synchronized.
+- Acceptance Commands:
+  - `cd backend && go test ./internal/services -run 'Test.*MailboxJob|Test.*MarkAccountsAsReadJob'`
+  - `cd backend && go test ./internal/handlers -run 'TestBatchMarkAccountsAsRead'`
+  - `cd backend && go test ./...`
+  - `cd frontend && pnpm type-check`
+  - `make check-api-generated`
+  - `git diff --check`
+- Exit Result: passed on 2026-04-30.
+  - `cd backend && go test ./internal/services -run 'Test.*MailboxJob|Test.*MarkAccountsAsReadJob'`: passed.
+  - `cd backend && go test ./internal/handlers -run 'TestBatchMarkAccountsAsRead'`: passed.
+  - `cd backend && go test ./...`: passed.
+  - `cd frontend && pnpm type-check`: passed.
+  - `make check-api-generated`: passed; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
+  - `git diff --check`: passed.
+
 ## Findings
 
 - F001: Phase 1 stable route boundary should start from real registrations in `backend/cmd/firemail/main.go`, plus attachment routes registered through `AttachmentHandler.RegisterRoutes(api)`.
@@ -622,11 +658,13 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - F014: Auth refresh/change-password/profile, backup, and soft-delete handlers were live code but dead public surface; they are now registered and documented, with backup/soft-delete placed under admin-only routes.
 - F015: Search token parsing was mutating `SearchEmailsRequest`; cache invalidation was global because email-list cache keys hid the user ID behind an MD5 hash. T14 fixed both with local request copies and user-visible cache key prefixes.
 - F016: Final state is reproducible through `make check-api-generated`; generated server/SDK artifacts are still newly untracked in this worktree until the migration commit is staged/committed, so tracked generated drift is checked explicitly by path.
+- F017: Batch account mark-read cannot stay in the request path because provider `Connect`/`SelectFolder`/`MarkAsRead` latency is remote-service-bound. T19 makes it a persisted `mailbox_jobs` workflow and exposes status at `GET /api/v1/accounts/batch/mark-read/{job_id}`.
 
 ## Errors Encountered
 
 - E014: T17 `make check-api-generated` failed after adding a non-wire auth refresh OpenAPI description because Orval regenerated only the `refreshToken` JSDoc. Different strategy applied: remove the description-only OpenAPI edit, keep the behavioral fix in code/tests, and rerun the generated check.
 - E015: T18 initial focused format/test command was launched from `backend/` while still using repository-root file paths, so `gofmt` reported `lstat backend/internal/services/...: no such file or directory`. Different strategy applied: rerun the same command with paths relative to `backend/`.
+- E016: T19 initial focused handler format/test command was launched from `backend/` while still using the repository-root path `backend/internal/handlers/email_accounts_test.go`, so `gofmt` reported `lstat backend/internal/handlers/email_accounts_test.go: no such file or directory`. Different strategy applied: rerun with `internal/handlers/email_accounts_test.go` relative to `backend/`.
 - E001: Initial Redocly lint failed because `SuccessResponse.data` used `nullable` without a sibling `type`, and `/health` lacked an explicit security declaration. Different strategy applied: define `data` as a nullable object and add `security: []` to the public health operation.
 - E002: Initial Orval config generated schema files under a directory named `firemail.schemas.ts`, causing poor `from './.'` imports. Different strategy applied: use `frontend/src/api/generated/model` as the schema directory.
 - E003: `pnpm type-check` failed because `orval.config.ts` used unsupported `output.prettier`. Different strategy applied: remove that field and rely on Orval's generated output formatting.
@@ -660,6 +698,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - T13 passed on 2026-04-30: auth management and admin backup/soft-delete routes are registered, documented, generated, and permission-tested.
 - T14 passed on 2026-04-30: search side effects, cache isolation, reply subject logic, and compose HTML policy are covered by focused tests and full gates.
 - T15 passed on 2026-04-30: README generation docs were added and final backend, frontend, OpenAPI/codegen, route drift, SDK drift, race, migration/CRUD, generated drift, and diff checks passed.
+- T19 passed on 2026-04-30: batch account mark-read now returns an accepted persisted job, job status is user-scoped, SSE progress is emitted, backend/frontend/generated gates pass, and no new Redocly warning category remains.
 
 ## Deferred Decisions
 

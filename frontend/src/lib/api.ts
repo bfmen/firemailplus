@@ -31,6 +31,7 @@ import {
   getDownloadAttachmentUrl,
   getForwardEmailUrl,
   getGetCurrentUserUrl,
+  getGetAccountJobStatusUrl,
   getGetDraftUrl,
   getGetEmailAccountUrl,
   getGetEmailUrl,
@@ -315,6 +316,10 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ account_ids: accountIds }),
     });
+  }
+
+  async getAccountJobStatus(jobId: string): Promise<ApiResponse> {
+    return this.request(this.generatedEndpoint(getGetAccountJobStatusUrl(jobId)));
   }
 
   // 邮箱分组相关 API

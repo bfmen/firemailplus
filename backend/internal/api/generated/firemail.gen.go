@@ -19,6 +19,45 @@ const (
 	QueryTokenScopes = "queryToken.Scopes"
 )
 
+// Defines values for MailboxJobOperation.
+const (
+	MarkAccountsRead MailboxJobOperation = "mark_accounts_read"
+)
+
+// Valid indicates whether the value is a known member of the MailboxJobOperation enum.
+func (e MailboxJobOperation) Valid() bool {
+	switch e {
+	case MarkAccountsRead:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MailboxJobStatus.
+const (
+	Completed MailboxJobStatus = "completed"
+	Failed    MailboxJobStatus = "failed"
+	Queued    MailboxJobStatus = "queued"
+	Running   MailboxJobStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the MailboxJobStatus enum.
+func (e MailboxJobStatus) Valid() bool {
+	switch e {
+	case Completed:
+		return true
+	case Failed:
+		return true
+	case Queued:
+		return true
+	case Running:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ProviderPath.
 const (
 	ProviderPathGmail   ProviderPath = "gmail"
@@ -286,6 +325,30 @@ type LoginResponse struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
+// MailboxJob defines model for MailboxJob.
+type MailboxJob struct {
+	AccountIds           []int64                `json:"account_ids"`
+	CompletedAt          *time.Time             `json:"completed_at,omitempty"`
+	CreatedAt            *time.Time             `json:"created_at,omitempty"`
+	Error                *string                `json:"error,omitempty"`
+	Id                   *int64                 `json:"id,omitempty"`
+	JobId                string                 `json:"job_id"`
+	Operation            MailboxJobOperation    `json:"operation"`
+	ProcessedCount       int                    `json:"processed_count"`
+	StartedAt            *time.Time             `json:"started_at,omitempty"`
+	Status               MailboxJobStatus       `json:"status"`
+	TotalCount           int                    `json:"total_count"`
+	UpdatedAt            *time.Time             `json:"updated_at,omitempty"`
+	UserId               int64                  `json:"user_id"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// MailboxJobOperation defines model for MailboxJob.Operation.
+type MailboxJobOperation string
+
+// MailboxJobStatus defines model for MailboxJob.Status.
+type MailboxJobStatus string
+
 // OAuthInitResponse defines model for OAuthInitResponse.
 type OAuthInitResponse struct {
 	AuthUrl string `json:"auth_url"`
@@ -441,6 +504,13 @@ type LoginSuccess struct {
 	Data    *LoginResponse `json:"data,omitempty"`
 	Message *string        `json:"message,omitempty"`
 	Success bool           `json:"success"`
+}
+
+// MailboxJobSuccess defines model for MailboxJobSuccess.
+type MailboxJobSuccess struct {
+	Data    *MailboxJob `json:"data,omitempty"`
+	Message *string     `json:"message,omitempty"`
+	Success bool        `json:"success"`
 }
 
 // NotFound defines model for NotFound.
@@ -2191,6 +2261,242 @@ func (a LoginResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(object)
 }
 
+// Getter for additional properties for MailboxJob. Returns the specified
+// element and whether it was found
+func (a MailboxJob) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for MailboxJob
+func (a *MailboxJob) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for MailboxJob to handle AdditionalProperties
+func (a *MailboxJob) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["account_ids"]; found {
+		err = json.Unmarshal(raw, &a.AccountIds)
+		if err != nil {
+			return fmt.Errorf("error reading 'account_ids': %w", err)
+		}
+		delete(object, "account_ids")
+	}
+
+	if raw, found := object["completed_at"]; found {
+		err = json.Unmarshal(raw, &a.CompletedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'completed_at': %w", err)
+		}
+		delete(object, "completed_at")
+	}
+
+	if raw, found := object["created_at"]; found {
+		err = json.Unmarshal(raw, &a.CreatedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'created_at': %w", err)
+		}
+		delete(object, "created_at")
+	}
+
+	if raw, found := object["error"]; found {
+		err = json.Unmarshal(raw, &a.Error)
+		if err != nil {
+			return fmt.Errorf("error reading 'error': %w", err)
+		}
+		delete(object, "error")
+	}
+
+	if raw, found := object["id"]; found {
+		err = json.Unmarshal(raw, &a.Id)
+		if err != nil {
+			return fmt.Errorf("error reading 'id': %w", err)
+		}
+		delete(object, "id")
+	}
+
+	if raw, found := object["job_id"]; found {
+		err = json.Unmarshal(raw, &a.JobId)
+		if err != nil {
+			return fmt.Errorf("error reading 'job_id': %w", err)
+		}
+		delete(object, "job_id")
+	}
+
+	if raw, found := object["operation"]; found {
+		err = json.Unmarshal(raw, &a.Operation)
+		if err != nil {
+			return fmt.Errorf("error reading 'operation': %w", err)
+		}
+		delete(object, "operation")
+	}
+
+	if raw, found := object["processed_count"]; found {
+		err = json.Unmarshal(raw, &a.ProcessedCount)
+		if err != nil {
+			return fmt.Errorf("error reading 'processed_count': %w", err)
+		}
+		delete(object, "processed_count")
+	}
+
+	if raw, found := object["started_at"]; found {
+		err = json.Unmarshal(raw, &a.StartedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'started_at': %w", err)
+		}
+		delete(object, "started_at")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["total_count"]; found {
+		err = json.Unmarshal(raw, &a.TotalCount)
+		if err != nil {
+			return fmt.Errorf("error reading 'total_count': %w", err)
+		}
+		delete(object, "total_count")
+	}
+
+	if raw, found := object["updated_at"]; found {
+		err = json.Unmarshal(raw, &a.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'updated_at': %w", err)
+		}
+		delete(object, "updated_at")
+	}
+
+	if raw, found := object["user_id"]; found {
+		err = json.Unmarshal(raw, &a.UserId)
+		if err != nil {
+			return fmt.Errorf("error reading 'user_id': %w", err)
+		}
+		delete(object, "user_id")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for MailboxJob to handle AdditionalProperties
+func (a MailboxJob) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.AccountIds != nil {
+		object["account_ids"], err = json.Marshal(a.AccountIds)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'account_ids': %w", err)
+		}
+	}
+
+	if a.CompletedAt != nil {
+		object["completed_at"], err = json.Marshal(a.CompletedAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'completed_at': %w", err)
+		}
+	}
+
+	if a.CreatedAt != nil {
+		object["created_at"], err = json.Marshal(a.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'created_at': %w", err)
+		}
+	}
+
+	if a.Error != nil {
+		object["error"], err = json.Marshal(a.Error)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'error': %w", err)
+		}
+	}
+
+	if a.Id != nil {
+		object["id"], err = json.Marshal(a.Id)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'id': %w", err)
+		}
+	}
+
+	object["job_id"], err = json.Marshal(a.JobId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'job_id': %w", err)
+	}
+
+	object["operation"], err = json.Marshal(a.Operation)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'operation': %w", err)
+	}
+
+	object["processed_count"], err = json.Marshal(a.ProcessedCount)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'processed_count': %w", err)
+	}
+
+	if a.StartedAt != nil {
+		object["started_at"], err = json.Marshal(a.StartedAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'started_at': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["total_count"], err = json.Marshal(a.TotalCount)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'total_count': %w", err)
+	}
+
+	if a.UpdatedAt != nil {
+		object["updated_at"], err = json.Marshal(a.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'updated_at': %w", err)
+		}
+	}
+
+	object["user_id"], err = json.Marshal(a.UserId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'user_id': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
 // Getter for additional properties for OAuthTokenResponse. Returns the specified
 // element and whether it was found
 func (a OAuthTokenResponse) Get(fieldName string) (value interface{}, found bool) {
@@ -2506,6 +2812,9 @@ type ServerInterface interface {
 	// Batch mark accounts as read
 	// (POST /api/v1/accounts/batch/mark-read)
 	BatchMarkAccountsAsRead(c *gin.Context)
+	// Get account mailbox job status
+	// (GET /api/v1/accounts/batch/mark-read/{job_id})
+	GetAccountJobStatus(c *gin.Context, jobId string)
 	// Batch sync email accounts
 	// (POST /api/v1/accounts/batch/sync)
 	BatchSyncEmailAccounts(c *gin.Context)
@@ -2845,6 +3154,32 @@ func (siw *ServerInterfaceWrapper) BatchMarkAccountsAsRead(c *gin.Context) {
 	}
 
 	siw.Handler.BatchMarkAccountsAsRead(c)
+}
+
+// GetAccountJobStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetAccountJobStatus(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "job_id" -------------
+	var jobId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "job_id", c.Param("job_id"), &jobId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter job_id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetAccountJobStatus(c, jobId)
 }
 
 // BatchSyncEmailAccounts operation middleware
@@ -5133,6 +5468,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/api/v1/accounts", wrapper.CreateEmailAccount)
 	router.POST(options.BaseURL+"/api/v1/accounts/batch/delete", wrapper.BatchDeleteEmailAccounts)
 	router.POST(options.BaseURL+"/api/v1/accounts/batch/mark-read", wrapper.BatchMarkAccountsAsRead)
+	router.GET(options.BaseURL+"/api/v1/accounts/batch/mark-read/:job_id", wrapper.GetAccountJobStatus)
 	router.POST(options.BaseURL+"/api/v1/accounts/batch/sync", wrapper.BatchSyncEmailAccounts)
 	router.POST(options.BaseURL+"/api/v1/accounts/custom", wrapper.CreateCustomEmailAccount)
 	router.DELETE(options.BaseURL+"/api/v1/accounts/:id", wrapper.DeleteEmailAccount)

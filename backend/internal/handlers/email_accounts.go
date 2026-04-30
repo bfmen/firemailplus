@@ -268,12 +268,39 @@ func (h *Handler) BatchMarkAccountsAsRead(c *gin.Context) {
 		return
 	}
 
-	if err := h.emailService.MarkAccountsAsRead(c.Request.Context(), userID, req.AccountIDs); err != nil {
-		h.respondWithError(c, http.StatusBadRequest, "Failed to mark accounts as read: "+err.Error())
+	job, err := h.emailService.StartMarkAccountsAsReadJob(c.Request.Context(), userID, req.AccountIDs)
+	if err != nil {
+		h.respondWithError(c, http.StatusBadRequest, "Failed to start mark accounts as read job: "+err.Error())
 		return
 	}
 
-	h.respondWithSuccess(c, nil, "Accounts marked as read successfully")
+	c.JSON(http.StatusAccepted, SuccessResponse{
+		Success: true,
+		Data:    job,
+		Message: "Accounts mark-read job accepted",
+	})
+}
+
+// GetAccountJobStatus 获取账户批量任务状态
+func (h *Handler) GetAccountJobStatus(c *gin.Context) {
+	userID, exists := h.getCurrentUserID(c)
+	if !exists {
+		return
+	}
+
+	jobID := strings.TrimSpace(c.Param("job_id"))
+	if jobID == "" {
+		h.respondWithError(c, http.StatusBadRequest, "job_id is required")
+		return
+	}
+
+	job, err := h.emailService.GetMailboxJob(c.Request.Context(), userID, jobID)
+	if err != nil {
+		h.respondWithError(c, http.StatusNotFound, "Mailbox job not found")
+		return
+	}
+
+	h.respondWithSuccess(c, job)
 }
 
 // GetProviders 获取支持的邮件提供商列表

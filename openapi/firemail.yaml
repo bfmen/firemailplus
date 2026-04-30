@@ -385,12 +385,30 @@ paths:
       requestBody:
         $ref: '#/components/requestBodies/JsonBody'
       responses:
-        '200':
-          $ref: '#/components/responses/Success'
+        '202':
+          $ref: '#/components/responses/MailboxJobSuccess'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/v1/accounts/batch/mark-read/{job_id}:
+    get:
+      tags: [Accounts]
+      operationId: getAccountJobStatus
+      summary: Get account mailbox job status
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/MailboxJobSuccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/providers:
     get:
       tags: [Providers]
@@ -1750,6 +1768,17 @@ components:
                     type: array
                     items:
                       $ref: '#/components/schemas/EmailAccount'
+    MailboxJobSuccess:
+      description: Mailbox job response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessResponse'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MailboxJob'
     EmailsPageSuccess:
       description: Email page response.
       content:
@@ -2062,6 +2091,50 @@ components:
           type: string
         updated_at:
           type: string
+    MailboxJob:
+      type: object
+      additionalProperties: true
+      required: [job_id, user_id, operation, status, processed_count, total_count, account_ids]
+      properties:
+        id:
+          type: integer
+          format: int64
+        job_id:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+        operation:
+          type: string
+          enum: [mark_accounts_read]
+        status:
+          type: string
+          enum: [queued, running, completed, failed]
+        account_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        processed_count:
+          type: integer
+        total_count:
+          type: integer
+        error:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     Email:
       type: object
       additionalProperties: true

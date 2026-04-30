@@ -38,6 +38,7 @@ const requiredHelpers = [
   'getBatchDeleteEmailAccountsUrl',
   'getBatchSyncEmailAccountsUrl',
   'getBatchMarkAccountsAsReadUrl',
+  'getGetAccountJobStatusUrl',
   'getListEmailGroupsUrl',
   'getCreateEmailGroupUrl',
   'getUpdateEmailGroupUrl',

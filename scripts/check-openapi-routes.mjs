@@ -30,6 +30,7 @@ const expected = new Set([
   'POST /api/v1/accounts/batch/delete',
   'POST /api/v1/accounts/batch/sync',
   'POST /api/v1/accounts/batch/mark-read',
+  'GET /api/v1/accounts/batch/mark-read/{job_id}',
   'GET /api/v1/providers',
   'GET /api/v1/providers/detect',
   'GET /api/v1/emails',

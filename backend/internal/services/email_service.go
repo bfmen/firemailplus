@@ -23,6 +23,7 @@ import (
 	"firemail/internal/providers"
 	"firemail/internal/sse"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -52,6 +53,8 @@ type EmailService interface {
 	MarkEmailAsUnstarred(ctx context.Context, userID, emailID uint) error
 	MarkAccountAsRead(ctx context.Context, userID, accountID uint) error
 	MarkAccountsAsRead(ctx context.Context, userID uint, accountIDs []uint) error
+	StartMarkAccountsAsReadJob(ctx context.Context, userID uint, accountIDs []uint) (*models.MailboxJob, error)
+	GetMailboxJob(ctx context.Context, userID uint, jobID string) (*models.MailboxJob, error)
 	ToggleEmailStar(ctx context.Context, userID, emailID uint) error
 	ToggleEmailImportant(ctx context.Context, userID, emailID uint) error
 	MoveEmail(ctx context.Context, userID, emailID uint, targetFolderID uint) error
@@ -93,6 +96,8 @@ type EmailServiceImpl struct {
 	syncService       *SyncService // 添加同步服务依赖
 	cacheManager      *cache.CacheManager
 	attachmentService AttachmentDownloader // 添加附件服务依赖
+
+	markAccountAsReadJobRunner func(ctx context.Context, userID, accountID uint) error
 }
 
 // NewEmailService 创建邮件服务实例
@@ -2463,6 +2468,143 @@ func (s *EmailServiceImpl) MarkAccountsAsRead(ctx context.Context, userID uint, 
 	}
 
 	return nil
+}
+
+// StartMarkAccountsAsReadJob records an asynchronous batch account mark-read
+// job and starts remote writeback outside the HTTP request context.
+func (s *EmailServiceImpl) StartMarkAccountsAsReadJob(ctx context.Context, userID uint, accountIDs []uint) (*models.MailboxJob, error) {
+	if len(accountIDs) == 0 {
+		return nil, fmt.Errorf("accountIDs cannot be empty")
+	}
+
+	for _, accountID := range accountIDs {
+		if _, err := s.GetEmailAccount(ctx, userID, accountID); err != nil {
+			return nil, fmt.Errorf("account %d not found: %w", accountID, err)
+		}
+	}
+
+	job := &models.MailboxJob{
+		JobID:      uuid.NewString(),
+		UserID:     userID,
+		Operation:  models.MailboxJobOperationMarkAccountsRead,
+		Status:     models.MailboxJobStatusQueued,
+		TotalCount: len(accountIDs),
+	}
+	if err := job.SetAccountIDs(accountIDs); err != nil {
+		return nil, fmt.Errorf("failed to encode mailbox job account IDs: %w", err)
+	}
+	if err := s.db.WithContext(ctx).Create(job).Error; err != nil {
+		return nil, fmt.Errorf("failed to create mailbox job: %w", err)
+	}
+
+	s.publishMailboxJobEvent(ctx, job)
+
+	go func(jobID string, userID uint, accountIDs []uint) {
+		jobCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		s.runMarkAccountsAsReadJob(jobCtx, jobID, userID, accountIDs)
+	}(job.JobID, userID, append([]uint(nil), accountIDs...))
+
+	return job, nil
+}
+
+// GetMailboxJob returns a user-scoped asynchronous mailbox job.
+func (s *EmailServiceImpl) GetMailboxJob(ctx context.Context, userID uint, jobID string) (*models.MailboxJob, error) {
+	var job models.MailboxJob
+	if err := s.db.WithContext(ctx).
+		Where("user_id = ? AND job_id = ?", userID, jobID).
+		First(&job).Error; err != nil {
+		return nil, err
+	}
+	return &job, nil
+}
+
+func (s *EmailServiceImpl) runMarkAccountsAsReadJob(ctx context.Context, jobID string, userID uint, accountIDs []uint) {
+	job, err := s.updateMailboxJob(ctx, userID, jobID, map[string]interface{}{
+		"status":     models.MailboxJobStatusRunning,
+		"started_at": time.Now(),
+	})
+	if err != nil {
+		log.Printf("Failed to start mailbox job %s: %v", jobID, err)
+		return
+	}
+	s.publishMailboxJobEvent(ctx, job)
+
+	processedCount := 0
+	for _, accountID := range accountIDs {
+		if err := s.executeMarkAccountAsReadJob(ctx, userID, accountID); err != nil {
+			now := time.Now()
+			job, updateErr := s.updateMailboxJob(ctx, userID, jobID, map[string]interface{}{
+				"status":          models.MailboxJobStatusFailed,
+				"processed_count": processedCount,
+				"error_message":   err.Error(),
+				"completed_at":    now,
+			})
+			if updateErr != nil {
+				log.Printf("Failed to fail mailbox job %s: %v", jobID, updateErr)
+				return
+			}
+			s.publishMailboxJobEvent(ctx, job)
+			return
+		}
+
+		processedCount++
+		job, err = s.updateMailboxJob(ctx, userID, jobID, map[string]interface{}{
+			"processed_count": processedCount,
+		})
+		if err != nil {
+			log.Printf("Failed to update mailbox job %s progress: %v", jobID, err)
+			return
+		}
+		s.publishMailboxJobEvent(ctx, job)
+	}
+
+	now := time.Now()
+	job, err = s.updateMailboxJob(ctx, userID, jobID, map[string]interface{}{
+		"status":          models.MailboxJobStatusCompleted,
+		"processed_count": processedCount,
+		"completed_at":    now,
+	})
+	if err != nil {
+		log.Printf("Failed to complete mailbox job %s: %v", jobID, err)
+		return
+	}
+	s.publishMailboxJobEvent(ctx, job)
+}
+
+func (s *EmailServiceImpl) executeMarkAccountAsReadJob(ctx context.Context, userID, accountID uint) error {
+	if s.markAccountAsReadJobRunner != nil {
+		return s.markAccountAsReadJobRunner(ctx, userID, accountID)
+	}
+	return s.MarkAccountAsRead(ctx, userID, accountID)
+}
+
+func (s *EmailServiceImpl) updateMailboxJob(ctx context.Context, userID uint, jobID string, updates map[string]interface{}) (*models.MailboxJob, error) {
+	if err := s.db.WithContext(ctx).
+		Model(&models.MailboxJob{}).
+		Where("user_id = ? AND job_id = ?", userID, jobID).
+		Updates(updates).Error; err != nil {
+		return nil, err
+	}
+	return s.GetMailboxJob(ctx, userID, jobID)
+}
+
+func (s *EmailServiceImpl) publishMailboxJobEvent(ctx context.Context, job *models.MailboxJob) {
+	if s.eventPublisher == nil || job == nil {
+		return
+	}
+	event := sse.NewMailboxJobUpdatedEvent(
+		job.JobID,
+		job.Operation,
+		job.Status,
+		job.ProcessedCount,
+		job.TotalCount,
+		job.ErrorMessage,
+		job.UserID,
+	)
+	if err := s.eventPublisher.PublishToUser(ctx, job.UserID, event); err != nil {
+		log.Printf("Failed to publish mailbox job event: %v", err)
+	}
 }
 
 type parsedSearchQuery struct {

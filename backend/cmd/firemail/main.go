@@ -168,6 +168,7 @@ func setupRoutes(router *gin.Engine, h *handlers.Handler) {
 			accounts.POST("/batch/delete", h.BatchDeleteEmailAccounts)
 			accounts.POST("/batch/sync", h.BatchSyncEmailAccounts)
 			accounts.POST("/batch/mark-read", h.BatchMarkAccountsAsRead)
+			accounts.GET("/batch/mark-read/:job_id", h.GetAccountJobStatus)
 		}
 
 		// 提供商配置路由（需要认证）

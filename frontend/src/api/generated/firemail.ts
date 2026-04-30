@@ -40,6 +40,7 @@ import type {
   ListTemplatesParams,
   LoginRequest,
   LoginSuccessResponse,
+  MailboxJobSuccessResponse,
   NotFoundResponse,
   OAuthInitSuccessResponse,
   OAuthTokenSuccessResponse,
@@ -1339,9 +1340,9 @@ export const batchSyncEmailAccounts = async (jsonBodyBody: JsonBodyBody, options
 /**
  * @summary Batch mark accounts as read
  */
-export type batchMarkAccountsAsReadResponse200 = {
-  data: SuccessResponse
-  status: 200
+export type batchMarkAccountsAsReadResponse202 = {
+  data: MailboxJobSuccessResponse
+  status: 202
 }
 
 export type batchMarkAccountsAsReadResponse400 = {
@@ -1354,7 +1355,7 @@ export type batchMarkAccountsAsReadResponse401 = {
   status: 401
 }
 
-export type batchMarkAccountsAsReadResponseSuccess = (batchMarkAccountsAsReadResponse200) & {
+export type batchMarkAccountsAsReadResponseSuccess = (batchMarkAccountsAsReadResponse202) & {
   headers: Headers;
 };
 export type batchMarkAccountsAsReadResponseError = (batchMarkAccountsAsReadResponse400 | batchMarkAccountsAsReadResponse401) & {
@@ -1388,6 +1389,61 @@ export const batchMarkAccountsAsRead = async (jsonBodyBody: JsonBodyBody, option
 
   const data: batchMarkAccountsAsReadResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as batchMarkAccountsAsReadResponse
+}
+
+
+
+/**
+ * @summary Get account mailbox job status
+ */
+export type getAccountJobStatusResponse200 = {
+  data: MailboxJobSuccessResponse
+  status: 200
+}
+
+export type getAccountJobStatusResponse401 = {
+  data: UnauthorizedResponse
+  status: 401
+}
+
+export type getAccountJobStatusResponse404 = {
+  data: NotFoundResponse
+  status: 404
+}
+
+export type getAccountJobStatusResponseSuccess = (getAccountJobStatusResponse200) & {
+  headers: Headers;
+};
+export type getAccountJobStatusResponseError = (getAccountJobStatusResponse401 | getAccountJobStatusResponse404) & {
+  headers: Headers;
+};
+
+export type getAccountJobStatusResponse = (getAccountJobStatusResponseSuccess | getAccountJobStatusResponseError)
+
+export const getGetAccountJobStatusUrl = (jobId: string,) => {
+
+
+
+
+  return `/api/v1/accounts/batch/mark-read/${jobId}`
+}
+
+export const getAccountJobStatus = async (jobId: string, options?: RequestInit): Promise<getAccountJobStatusResponse> => {
+
+  const res = await fetch(getGetAccountJobStatusUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getAccountJobStatusResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getAccountJobStatusResponse
 }
 
 
