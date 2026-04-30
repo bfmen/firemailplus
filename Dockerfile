@@ -1,7 +1,10 @@
 # 多阶段构建 Dockerfile for FireMail（精简运行时，保留功能）
 
+ARG GO_BASE_IMAGE=golang:1.24-alpine
+ARG NODE_BASE_IMAGE=node:20-alpine
+
 # 阶段1: 构建后端Go应用
-FROM golang:1.24-alpine AS backend-builder
+FROM ${GO_BASE_IMAGE} AS backend-builder
 RUN apk add --no-cache gcc musl-dev sqlite-dev
 WORKDIR /app/backend
 COPY backend/go.mod backend/go.sum ./
@@ -10,7 +13,7 @@ COPY backend/ ./
 RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -ldflags '-extldflags "-static"' -o firemail cmd/firemail/main.go
 
 # 阶段2: 构建前端Next.js应用（standalone）
-FROM node:20-alpine AS frontend-builder
+FROM ${NODE_BASE_IMAGE} AS frontend-builder
 WORKDIR /app/frontend
 RUN npm install -g pnpm
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
@@ -21,7 +24,7 @@ ENV NODE_ENV=production
 RUN pnpm build
 
 # 阶段3: 运行镜像（单容器运行前后端）
-FROM node:20-alpine
+FROM ${NODE_BASE_IMAGE}
 RUN apk add --no-cache ca-certificates sqlite tzdata
 ENV TZ=Asia/Shanghai
 WORKDIR /app

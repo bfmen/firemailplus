@@ -59,7 +59,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 | T22 | done | Make admin soft-delete cleanup usable with an empty body. | Empty body uses default retention days; OpenAPI request body is optional; focused tests pass. |
 | T23 | done | Harden SSE heartbeat/reconnect behavior and redact frontend token logs. | 120s browser smoke receives heartbeat; console/HAR/log scans contain no token/JWT leakage. |
 | T24 | done | Fix search page folder loading and query/empty-state behavior. | HAR has no folder request without `account_id`; search URL and empty state reflect current query. |
-| T25 | pending | Improve Docker build resilience around external base images. | Build supports mirror/base-image overrides and retry; Docker or documented fallback validation passes. |
+| T25 | done | Improve Docker build resilience around external base images. | Build supports mirror/base-image overrides and retry; Docker or documented fallback validation passes. |
 | T26 | pending | Add reproducible local production E2E harness and reporting. | Backend curl and frontend jshook flows produce redacted artifacts under `/tmp/firemailplus-e2e-artifacts`. |
 | T27 | pending | Rebuild, deploy a clean test instance, import the two Outlook accounts, and rerun full E2E. | Backend curl and frontend jshook pass with no unexpected 4xx/5xx/timeout/leaks. |
 | T28 | pending | Record final E2E acceptance and cleanup. | Task file records final commands, commits, risks, and clean generated/worktree status. |
@@ -825,6 +825,49 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
   - `cd backend && go test ./...`: passed.
   - `git diff --check` and `git diff --cached --check`: passed.
 
+### T25 - Docker Build Base Image Resilience
+
+- ID: T25
+- Status: done
+- Goal: Make Docker builds resilient to external registry/base-image metadata failures by allowing base image overrides and retrying transient build failures.
+- Code To Inspect: `docs/e2e-issue-investigation.md`, `Dockerfile`, `scripts/docker-build.sh`, `docker-compose.yml`, `.github/workflows/docker-build.yml`, `README.md`.
+- Allowed Changes: Dockerfile build args, build/deploy scripts, compose build args, CI build args/cache settings, README or focused validation script, task file.
+- Implementation Notes:
+  - Initial finding: E2E failed while resolving `golang:1.24-alpine` metadata, before application compilation.
+  - Initial finding: Dockerfile hardcodes `golang:1.24-alpine` and `node:20-alpine` in `FROM`, so operators cannot redirect to an internal mirror/cache without editing source.
+  - Initial finding: `scripts/docker-build.sh` runs one `docker build` attempt after pruning cache, so a transient registry reset fails the whole deployment path.
+  - Initial finding: Compose has a build section but does not pass base image args; GitHub Actions build-push step likewise does not expose base image overrides.
+  - Dockerfile now defines `GO_BASE_IMAGE` and `NODE_BASE_IMAGE` args and uses them in all build/runtime `FROM` statements while preserving the same default images.
+  - `scripts/docker-build.sh` now supports `GO_BASE_IMAGE`, `NODE_BASE_IMAGE`, `DOCKER_BUILD_RETRIES`, `DOCKER_BUILD_RETRY_DELAY`, `DOCKER_BUILD_PULL`, and `DOCKER_BUILD_EXTRA_ARGS`.
+  - Compose build args now pass base-image overrides from environment variables.
+  - GitHub workflow manual dispatch now exposes base-image inputs, passes build args to Buildx, and keeps `pull: true` for fresh metadata when the registry is healthy.
+  - README documents mirror/cache override examples for Compose and the local build script.
+  - Added `scripts/check-docker-build-config.mjs` to statically verify Dockerfile/script/Compose/CI/docs resilience hooks.
+- Self Review Checklist:
+  - [x] Dockerfile supports Go and Node base-image overrides without changing default images.
+  - [x] Local build script supports retry/backoff and optional build args.
+  - [x] Compose and CI can pass base image overrides.
+  - [x] README documents mirror/cache override usage.
+  - [x] Static validation and full gates pass.
+- Acceptance Commands:
+  - `node scripts/check-docker-build-config.mjs`
+  - `bash -n scripts/docker-build.sh scripts/docker-deploy.sh`
+  - `docker build --help`
+  - `docker compose config`
+  - `cd backend && go test ./...`
+  - `cd frontend && pnpm type-check`
+  - `make check-api-generated`
+  - `git diff --check`
+- Exit Result: passed on 2026-04-30.
+  - `node scripts/check-docker-build-config.mjs`: passed.
+  - `bash -n scripts/docker-build.sh scripts/docker-deploy.sh`: passed.
+  - `docker build --help`: passed, confirming Docker build CLI availability.
+  - `docker compose config`: passed.
+  - `cd backend && go test ./...`: passed.
+  - `cd frontend && pnpm type-check`: passed.
+  - `make check-api-generated`: passed; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
+  - `git diff --check`: passed.
+
 ## Findings
 
 - F001: Phase 1 stable route boundary should start from real registrations in `backend/cmd/firemail/main.go`, plus attachment routes registered through `AttachmentHandler.RegisterRoutes(api)`.
@@ -849,6 +892,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - F020: Soft-delete cleanup has two valid caller modes: explicit `retention_days` for admin control and empty body for the existing 30-day operational default. T22 aligns handler and OpenAPI with both modes.
 - F021: SSE query-token compatibility still requires a credential-bearing browser request URL, but frontend code must never echo that URL or token into console output. T23 separates the real EventSource URL builder from sanitized logging metadata and closes stale EventSource objects before managed reconnects.
 - F022: Folder listing is account-scoped by backend contract. Reusing optional `AccountIdQuery` for `listFolders` made the generated SDK and frontend facade permit invalid no-account requests, so `GET /api/v1/folders` needs a dedicated required account-id parameter while email list/search filters remain optional.
+- F023: Docker base-image pull failures happen before application build logic. The resilient fix is operator-controlled base image indirection plus retry/backoff, not changing application code or hiding the failure behind a non-Docker fallback.
 
 ## Errors Encountered
 
@@ -898,6 +942,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - T22 passed on 2026-04-30: admin soft-delete cleanup accepts empty body with 30-day default, rejects invalid retention values with 400, updates OpenAPI to optional requestBody, and full gates pass.
 - T23 passed on 2026-04-30: SSE frontend logs are statically guarded against token/full-URL output, heartbeat timeout and reconnect paths close stale EventSource instances, proxy-safe SSE headers are tested, and full backend/frontend/generated/diff gates pass.
 - T24 passed on 2026-04-30: search filters no longer request folders without `account_id`, listFolders generated contracts require account id, typed searches synchronize URL/current empty state, and frontend/backend/OpenAPI/generated/diff gates pass.
+- T25 passed on 2026-04-30: Dockerfile, Compose, local build script, and GitHub workflow support base-image overrides; local build script retries transient registry failures; docs/static validation and full backend/frontend/generated gates pass.
 
 ## Deferred Decisions
 

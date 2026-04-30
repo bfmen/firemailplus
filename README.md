@@ -108,6 +108,26 @@ docker-compose logs -f
 
 服务启动后，访问 `http://localhost:3000` 即可使用。
 
+如果 Docker Hub 基础镜像拉取不稳定，可以把构建阶段指向内部镜像缓存或 registry mirror，而不需要修改 `Dockerfile`：
+
+```bash
+GO_BASE_IMAGE=registry.example.com/library/golang:1.24-alpine \
+NODE_BASE_IMAGE=registry.example.com/library/node:20-alpine \
+docker-compose build --pull
+
+docker-compose up -d
+```
+
+本地脚本也支持 transient registry 失败重试：
+
+```bash
+GO_BASE_IMAGE=registry.example.com/library/golang:1.24-alpine \
+NODE_BASE_IMAGE=registry.example.com/library/node:20-alpine \
+DOCKER_BUILD_RETRIES=5 \
+DOCKER_BUILD_RETRY_DELAY=15 \
+./scripts/docker-build.sh
+```
+
 默认管理员账户：
 - 用户名：`admin`
 - 密码：`admin123`（建议修改）

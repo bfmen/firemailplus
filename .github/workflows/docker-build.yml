@@ -2,10 +2,21 @@ name: Build and Push Docker Image
 
 on:
   workflow_dispatch:
+    inputs:
+      go_base_image:
+        description: Go builder base image or mirror
+        required: false
+        default: golang:1.24-alpine
+      node_base_image:
+        description: Node builder/runtime base image or mirror
+        required: false
+        default: node:20-alpine
 
 env:
   REGISTRY: docker.io
   IMAGE_NAME: luofengyuan/firemailplus
+  GO_BASE_IMAGE: ${{ inputs.go_base_image || 'golang:1.24-alpine' }}
+  NODE_BASE_IMAGE: ${{ inputs.node_base_image || 'node:20-alpine' }}
 
 jobs:
   build:
@@ -55,6 +66,10 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha,scope=${{ matrix.platform }}
         cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+        pull: true
+        build-args: |
+          GO_BASE_IMAGE=${{ env.GO_BASE_IMAGE }}
+          NODE_BASE_IMAGE=${{ env.NODE_BASE_IMAGE }}
         outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true
 
     - name: Export digest

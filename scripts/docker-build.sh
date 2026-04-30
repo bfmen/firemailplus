@@ -10,8 +10,36 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # 配置
-IMAGE_NAME="luofengyuan/firemailplus"
-VERSION="latest"
+IMAGE_NAME="${IMAGE_NAME:-luofengyuan/firemailplus}"
+VERSION="${VERSION:-latest}"
+GO_BASE_IMAGE="${GO_BASE_IMAGE:-golang:1.24-alpine}"
+NODE_BASE_IMAGE="${NODE_BASE_IMAGE:-node:20-alpine}"
+DOCKER_BUILD_RETRIES="${DOCKER_BUILD_RETRIES:-3}"
+DOCKER_BUILD_RETRY_DELAY="${DOCKER_BUILD_RETRY_DELAY:-10}"
+DOCKER_BUILD_PULL="${DOCKER_BUILD_PULL:-true}"
+DOCKER_BUILD_EXTRA_ARGS="${DOCKER_BUILD_EXTRA_ARGS:-}"
+
+run_docker_build() {
+    local build_cmd=(
+        docker build
+        --build-arg "GO_BASE_IMAGE=${GO_BASE_IMAGE}"
+        --build-arg "NODE_BASE_IMAGE=${NODE_BASE_IMAGE}"
+        -t "${IMAGE_NAME}:${VERSION}"
+    )
+
+    if [ "${DOCKER_BUILD_PULL}" = "true" ]; then
+        build_cmd+=(--pull)
+    fi
+
+    if [ -n "${DOCKER_BUILD_EXTRA_ARGS}" ]; then
+        # shellcheck disable=SC2206
+        local extra_args=(${DOCKER_BUILD_EXTRA_ARGS})
+        build_cmd+=("${extra_args[@]}")
+    fi
+
+    build_cmd+=(.)
+    "${build_cmd[@]}"
+}
 
 echo -e "${GREEN}开始构建FireMail Docker镜像...${NC}"
 
@@ -38,10 +66,27 @@ docker builder prune -f > /dev/null 2>&1 || true
 
 # 构建镜像
 echo -e "${GREEN}构建Docker镜像: ${IMAGE_NAME}:${VERSION}${NC}"
-docker build -t ${IMAGE_NAME}:${VERSION} .
+echo -e "${YELLOW}Go基础镜像: ${GO_BASE_IMAGE}${NC}"
+echo -e "${YELLOW}Node基础镜像: ${NODE_BASE_IMAGE}${NC}"
+echo -e "${YELLOW}构建重试次数: ${DOCKER_BUILD_RETRIES}, 初始退避: ${DOCKER_BUILD_RETRY_DELAY}s${NC}"
+
+build_success=false
+for attempt in $(seq 1 "${DOCKER_BUILD_RETRIES}"); do
+    echo -e "${GREEN}Docker build 尝试 ${attempt}/${DOCKER_BUILD_RETRIES}${NC}"
+    if run_docker_build; then
+        build_success=true
+        break
+    fi
+
+    if [ "${attempt}" -lt "${DOCKER_BUILD_RETRIES}" ]; then
+        sleep_seconds=$((DOCKER_BUILD_RETRY_DELAY * attempt))
+        echo -e "${YELLOW}构建失败，${sleep_seconds}s 后重试...${NC}"
+        sleep "${sleep_seconds}"
+    fi
+done
 
 # 检查构建结果
-if [ $? -eq 0 ]; then
+if [ "${build_success}" = "true" ]; then
     echo -e "${GREEN}✅ Docker镜像构建成功!${NC}"
     
     # 显示镜像信息
@@ -54,6 +99,7 @@ if [ $? -eq 0 ]; then
     
 else
     echo -e "${RED}❌ Docker镜像构建失败!${NC}"
+    echo -e "${YELLOW}可通过 GO_BASE_IMAGE / NODE_BASE_IMAGE 指向内部镜像缓存后重试。${NC}"
     exit 1
 fi
 
