@@ -399,7 +399,7 @@ type ScheduleDeduplicationRequestFrequency string
 
 // SoftDeleteCleanupRequest defines model for SoftDeleteCleanupRequest.
 type SoftDeleteCleanupRequest struct {
-	RetentionDays int `json:"retention_days"`
+	RetentionDays *int `json:"retention_days,omitempty"`
 }
 
 // SuccessResponse defines model for SuccessResponse.

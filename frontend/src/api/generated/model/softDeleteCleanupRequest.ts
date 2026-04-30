@@ -15,5 +15,5 @@ completed.
 
 export interface SoftDeleteCleanupRequest {
   /** @minimum 1 */
-  retention_days: number;
+  retention_days?: number;
 }

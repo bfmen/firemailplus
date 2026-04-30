@@ -1050,7 +1050,7 @@ paths:
       operationId: cleanupSoftDeletes
       summary: Permanently delete expired soft-deleted records
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -2014,11 +2014,11 @@ components:
     SoftDeleteCleanupRequest:
       type: object
       additionalProperties: false
-      required: [retention_days]
       properties:
         retention_days:
           type: integer
           minimum: 1
+          default: 30
     LoginResponse:
       type: object
       additionalProperties: true

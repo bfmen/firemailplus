@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -111,6 +112,7 @@ func setupManagementRouteTest(t *testing.T) (*gin.Engine, *gorm.DB, string, stri
 	admin.Use(handler.AuthRequired(), middleware.AdminRequired())
 	{
 		admin.GET("/backups", handler.ListBackups)
+		admin.POST("/soft-deletes/cleanup", handler.CleanupExpiredSoftDeletes)
 	}
 
 	userToken := createManagementRouteUserAndToken(t, db, cfg, "normal-user", "user")
@@ -135,4 +137,27 @@ func createManagementRouteUserAndToken(t *testing.T, db *gorm.DB, cfg *config.Co
 	login, err := authService.Login(&auth.LoginRequest{Username: username, Password: "old-password"})
 	require.NoError(t, err)
 	return login.Token
+}
+
+func TestSoftDeleteCleanupAllowsEmptyBody(t *testing.T) {
+	router, _, _, adminToken := setupManagementRouteTest(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/soft-deletes/cleanup", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+}
+
+func TestSoftDeleteCleanupRejectsInvalidRetentionDays(t *testing.T) {
+	router, _, _, adminToken := setupManagementRouteTest(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/soft-deletes/cleanup", strings.NewReader(`{"retention_days":0}`))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
 }

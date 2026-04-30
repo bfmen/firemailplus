@@ -3469,7 +3469,7 @@ export const getCleanupSoftDeletesUrl = () => {
   return `/api/v1/admin/soft-deletes/cleanup`
 }
 
-export const cleanupSoftDeletes = async (softDeleteCleanupRequest: SoftDeleteCleanupRequest, options?: RequestInit): Promise<cleanupSoftDeletesResponse> => {
+export const cleanupSoftDeletes = async (softDeleteCleanupRequest?: SoftDeleteCleanupRequest, options?: RequestInit): Promise<cleanupSoftDeletesResponse> => {
 
   const res = await fetch(getCleanupSoftDeletesUrl(),
   {

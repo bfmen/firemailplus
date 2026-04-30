@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"io"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
+
+const defaultSoftDeleteCleanupRetentionDays = 30
 
 // GetSoftDeleteStats 获取软删除统计信息
 func (h *Handler) GetSoftDeleteStats(c *gin.Context) {
@@ -21,14 +24,25 @@ func (h *Handler) GetSoftDeleteStats(c *gin.Context) {
 // CleanupExpiredSoftDeletes 清理过期的软删除数据
 func (h *Handler) CleanupExpiredSoftDeletes(c *gin.Context) {
 	var req struct {
-		RetentionDays int `json:"retention_days" binding:"required,min=1"`
+		RetentionDays *int `json:"retention_days"`
 	}
 
-	if !h.bindJSON(c, &req) {
-		return
+	retentionDays := defaultSoftDeleteCleanupRetentionDays
+	if c.Request != nil && c.Request.Body != nil && c.Request.ContentLength != 0 {
+		if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
+			h.respondWithError(c, http.StatusBadRequest, "Invalid request body: "+err.Error())
+			return
+		}
+		if req.RetentionDays != nil {
+			if *req.RetentionDays < 1 {
+				h.respondWithError(c, http.StatusBadRequest, "retention_days must be positive")
+				return
+			}
+			retentionDays = *req.RetentionDays
+		}
 	}
 
-	err := h.softDeleteService.CleanupExpiredSoftDeletes(c.Request.Context(), req.RetentionDays)
+	err := h.softDeleteService.CleanupExpiredSoftDeletes(c.Request.Context(), retentionDays)
 	if err != nil {
 		h.respondWithError(c, http.StatusInternalServerError, "Failed to cleanup expired soft deletes: "+err.Error())
 		return

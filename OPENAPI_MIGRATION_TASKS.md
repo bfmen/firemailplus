@@ -56,7 +56,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 | T19 | done | Convert batch account mark-read to an asynchronous, observable job. | API returns accepted job data quickly; job status/SSE progress are test-covered; no 60s request timeout. |
 | T20 | done | Stabilize single-email read-state remote sync errors and frontend rewrite behavior. | Remote/provider failures return typed errors, not opaque 500; direct backend and frontend rewrite behavior match. |
 | T21 | done | Fix dedup stats/report fallback and schedule defaults/validation. | Stats/report no longer 500 without enhanced dedup; empty schedule uses defaults; invalid schedule returns 400. |
-| T22 | pending | Make admin soft-delete cleanup usable with an empty body. | Empty body uses default retention days; OpenAPI request body is optional; focused tests pass. |
+| T22 | done | Make admin soft-delete cleanup usable with an empty body. | Empty body uses default retention days; OpenAPI request body is optional; focused tests pass. |
 | T23 | pending | Harden SSE heartbeat/reconnect behavior and redact frontend token logs. | 120s browser smoke receives heartbeat; console/HAR/log scans contain no token/JWT leakage. |
 | T24 | pending | Fix search page folder loading and query/empty-state behavior. | HAR has no folder request without `account_id`; search URL and empty state reflect current query. |
 | T25 | pending | Improve Docker build resilience around external base images. | Build supports mirror/base-image overrides and retry; Docker or documented fallback validation passes. |
@@ -713,6 +713,37 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
   - `make check-api-generated`: passed after E019; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
   - `git diff --check`: passed.
 
+### T22 - Soft-Delete Cleanup Empty Body
+
+- ID: T22
+- Status: done
+- Goal: Make `POST /api/v1/admin/soft-deletes/cleanup` usable with an empty body while keeping explicit `retention_days` validation.
+- Code To Inspect: `backend/internal/handlers/soft_delete.go`, `backend/internal/services/soft_delete_service.go`, `backend/internal/handlers/management_routes_test.go`, `openapi/firemail.yaml`, generated artifacts.
+- Allowed Changes: soft-delete cleanup handler/tests, OpenAPI/generated artifacts, task file.
+- Implementation Notes:
+  - Initial finding: handler requires JSON with `retention_days`, so empty E2E body is rejected before the service can apply the same 30-day default used by startup auto-cleanup.
+  - Cleanup now accepts an absent/empty body and uses the startup cleanup default of 30 retention days.
+  - Explicit `retention_days` remains supported and values below 1 return 400.
+  - OpenAPI requestBody is optional and `retention_days` is optional with default 30; generated Go/TS artifacts were refreshed.
+- Self Review Checklist:
+  - [x] Empty body uses default 30 retention days.
+  - [x] Explicit valid retention days still work.
+  - [x] Invalid retention days return 400.
+  - [x] OpenAPI requestBody is optional and schema no longer requires `retention_days`.
+  - [x] Full gates pass.
+- Acceptance Commands:
+  - `cd backend && go test ./internal/handlers -run 'TestSoftDeleteCleanup'`
+  - `cd backend && go test ./...`
+  - `cd frontend && pnpm type-check`
+  - `make check-api-generated`
+  - `git diff --check`
+- Exit Result: passed on 2026-04-30.
+  - `cd backend && go test ./internal/handlers -run 'TestSoftDeleteCleanup'`: passed.
+  - `cd backend && go test ./...`: passed.
+  - `cd frontend && pnpm type-check`: passed.
+  - `make check-api-generated`: passed; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
+  - `git diff --check`: passed.
+
 ## Findings
 
 - F001: Phase 1 stable route boundary should start from real registrations in `backend/cmd/firemail/main.go`, plus attachment routes registered through `AttachmentHandler.RegisterRoutes(api)`.
@@ -734,6 +765,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - F017: Batch account mark-read cannot stay in the request path because provider `Connect`/`SelectFolder`/`MarkAsRead` latency is remote-service-bound. T19 makes it a persisted `mailbox_jobs` workflow and exposes status at `GET /api/v1/accounts/batch/mark-read/{job_id}`.
 - F018: Single-message read/unread remains strong-consistency by design, but remote IMAP failures need stable API semantics. T20 preserves no-local-mutation-on-failure and exposes typed 409/502 JSON errors so Next rewrite callers can surface the backend reason instead of an opaque 500.
 - F019: Dedup stats/report should not be gated on enhanced dedup being enabled. T21 adds a DB-derived fallback from `emails` for total checked and duplicate message groups, keeping public report/stats endpoints useful in default deployments.
+- F020: Soft-delete cleanup has two valid caller modes: explicit `retention_days` for admin control and empty body for the existing 30-day operational default. T22 aligns handler and OpenAPI with both modes.
 
 ## Errors Encountered
 
@@ -779,6 +811,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - T19 passed on 2026-04-30: batch account mark-read now returns an accepted persisted job, job status is user-scoped, SSE progress is emitted, backend/frontend/generated gates pass, and no new Redocly warning category remains.
 - T20 passed on 2026-04-30: single-email read/unread remote failures now return typed 409/502 JSON errors with no local state mutation on failure; OpenAPI/generated SDK/backend adapter and frontend type-check gates pass.
 - T21 passed on 2026-04-30: dedup report/stats fallback succeeds without enhanced dedup, empty schedule body uses defaults, invalid schedules return 400, typed OpenAPI schedule schema is generated, and full gates pass.
+- T22 passed on 2026-04-30: admin soft-delete cleanup accepts empty body with 30-day default, rejects invalid retention values with 400, updates OpenAPI to optional requestBody, and full gates pass.
 
 ## Deferred Decisions
 
