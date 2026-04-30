@@ -10,6 +10,70 @@ import type {
   Folder,
   EmailGroup,
 } from '@/types/email';
+import {
+  getArchiveEmailUrl,
+  getBatchDeleteEmailAccountsUrl,
+  getBatchEmailOperationsUrl,
+  getBatchMarkAccountsAsReadUrl,
+  getBatchSyncEmailAccountsUrl,
+  getCreateCustomEmailAccountUrl,
+  getCreateEmailAccountUrl,
+  getCreateEmailGroupUrl,
+  getCreateFolderUrl,
+  getCreateManualOAuthAccountUrl,
+  getCreateOAuthAccountUrl,
+  getDeleteEmailAccountUrl,
+  getDeleteEmailGroupUrl,
+  getDeleteEmailUrl,
+  getDeleteDraftUrl,
+  getDeleteFolderUrl,
+  getDeleteTemplateUrl,
+  getDownloadAttachmentUrl,
+  getForwardEmailUrl,
+  getGetCurrentUserUrl,
+  getGetDraftUrl,
+  getGetEmailAccountUrl,
+  getGetEmailUrl,
+  getGetFolderUrl,
+  getGetSendStatusUrl,
+  getGetTemplateUrl,
+  getInitGmailOAuthUrl,
+  getInitOutlookOAuthUrl,
+  getListEmailAccountsUrl,
+  getListDraftsUrl,
+  getListEmailGroupsUrl,
+  getListEmailsUrl,
+  getListFoldersUrl,
+  getListTemplatesUrl,
+  getLoginUrl,
+  getLogoutUrl,
+  getMarkAccountAsReadUrl,
+  getMarkEmailAsReadUrl,
+  getMarkEmailAsUnreadUrl,
+  getMarkFolderAsReadUrl,
+  getMoveEmailUrl,
+  getReorderEmailGroupsUrl,
+  getReplyAllEmailUrl,
+  getReplyEmailUrl,
+  getResendEmailUrl,
+  getSaveDraftUrl,
+  getSearchEmailsUrl,
+  getSendBulkEmailsUrl,
+  getSendEmailUrl,
+  getSetDefaultEmailGroupUrl,
+  getSyncEmailAccountUrl,
+  getSyncFolderUrl,
+  getTestEmailAccountUrl,
+  getToggleEmailStarUrl,
+  getUpdateEmailAccountUrl,
+  getUpdateEmailGroupUrl,
+  getUpdateEmailUrl,
+  getUpdateDraftUrl,
+  getUpdateFolderUrl,
+  getUpdateTemplateUrl,
+  getCreateTemplateUrl,
+  getHandleOAuthCallbackUrl,
+} from '@/api/generated/firemail';
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080/api/v1';
 
@@ -71,6 +135,10 @@ export interface CreateAccountRequest {
 
 // 基础请求函数
 class ApiClient {
+  private generatedEndpoint(path: string): string {
+    return path.startsWith('/api/v1') ? path.slice('/api/v1'.length) || '/' : path;
+  }
+
   private getAuthToken(): string | null {
     if (typeof window !== 'undefined') {
       // 从Zustand persist存储中获取token
@@ -157,33 +225,33 @@ class ApiClient {
 
   // 认证相关 API
   async login(credentials: LoginRequest): Promise<ApiResponse<LoginResponse>> {
-    return this.request<LoginResponse>('/auth/login', {
+    return this.request<LoginResponse>(this.generatedEndpoint(getLoginUrl()), {
       method: 'POST',
       body: JSON.stringify(credentials),
     });
   }
 
   async logout(): Promise<ApiResponse> {
-    return this.request('/auth/logout', {
+    return this.request(this.generatedEndpoint(getLogoutUrl()), {
       method: 'POST',
     });
   }
 
   async getCurrentUser(): Promise<ApiResponse<LoginResponse['user']>> {
-    return this.request('/auth/me');
+    return this.request(this.generatedEndpoint(getGetCurrentUserUrl()));
   }
 
   // 邮箱账户相关 API
   async getEmailAccounts(): Promise<ApiResponse<EmailAccount[]>> {
-    return this.request('/accounts');
+    return this.request(this.generatedEndpoint(getListEmailAccountsUrl()));
   }
 
   async getEmailAccount(id: number): Promise<ApiResponse<EmailAccount>> {
-    return this.request(`/accounts/${id}`);
+    return this.request(this.generatedEndpoint(getGetEmailAccountUrl(id)));
   }
 
   async createEmailAccount(account: CreateAccountRequest): Promise<ApiResponse<EmailAccount>> {
-    return this.request<EmailAccount>('/accounts', {
+    return this.request<EmailAccount>(this.generatedEndpoint(getCreateEmailAccountUrl()), {
       method: 'POST',
       body: JSON.stringify(account),
     });
@@ -204,46 +272,46 @@ class ApiClient {
       group_id?: number | null;
     }
   ): Promise<ApiResponse<EmailAccount>> {
-    return this.request<EmailAccount>(`/accounts/${id}`, {
+    return this.request<EmailAccount>(this.generatedEndpoint(getUpdateEmailAccountUrl(id)), {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   async testEmailAccount(id: number): Promise<ApiResponse> {
-    return this.request(`/accounts/${id}/test`, {
+    return this.request(this.generatedEndpoint(getTestEmailAccountUrl(id)), {
       method: 'POST',
     });
   }
 
   async deleteEmailAccount(id: number): Promise<ApiResponse> {
-    return this.request(`/accounts/${id}`, {
+    return this.request(this.generatedEndpoint(getDeleteEmailAccountUrl(id)), {
       method: 'DELETE',
     });
   }
 
   async batchDeleteEmailAccounts(accountIds: number[]): Promise<ApiResponse> {
-    return this.request('/accounts/batch/delete', {
+    return this.request(this.generatedEndpoint(getBatchDeleteEmailAccountsUrl()), {
       method: 'POST',
       body: JSON.stringify({ account_ids: accountIds }),
     });
   }
 
   async batchSyncEmailAccounts(accountIds: number[]): Promise<ApiResponse> {
-    return this.request('/accounts/batch/sync', {
+    return this.request(this.generatedEndpoint(getBatchSyncEmailAccountsUrl()), {
       method: 'POST',
       body: JSON.stringify({ account_ids: accountIds }),
     });
   }
 
   async markAccountAsRead(accountId: number): Promise<ApiResponse> {
-    return this.request(`/accounts/${accountId}/mark-read`, {
+    return this.request(this.generatedEndpoint(getMarkAccountAsReadUrl(accountId)), {
       method: 'PUT',
     });
   }
 
   async batchMarkAccountsAsRead(accountIds: number[]): Promise<ApiResponse> {
-    return this.request('/accounts/batch/mark-read', {
+    return this.request(this.generatedEndpoint(getBatchMarkAccountsAsReadUrl()), {
       method: 'POST',
       body: JSON.stringify({ account_ids: accountIds }),
     });
@@ -251,37 +319,37 @@ class ApiClient {
 
   // 邮箱分组相关 API
   async getEmailGroups(): Promise<ApiResponse<EmailGroup[]>> {
-    return this.request('/groups');
+    return this.request(this.generatedEndpoint(getListEmailGroupsUrl()));
   }
 
   async createEmailGroup(payload: { name: string }): Promise<ApiResponse<EmailGroup>> {
-    return this.request<EmailGroup>('/groups', {
+    return this.request<EmailGroup>(this.generatedEndpoint(getCreateEmailGroupUrl()), {
       method: 'POST',
       body: JSON.stringify(payload),
     });
   }
 
   async updateEmailGroup(id: number, payload: { name?: string }): Promise<ApiResponse<EmailGroup>> {
-    return this.request<EmailGroup>(`/groups/${id}`, {
+    return this.request<EmailGroup>(this.generatedEndpoint(getUpdateEmailGroupUrl(id)), {
       method: 'PUT',
       body: JSON.stringify(payload),
     });
   }
 
   async deleteEmailGroup(id: number): Promise<ApiResponse> {
-    return this.request(`/groups/${id}`, {
+    return this.request(this.generatedEndpoint(getDeleteEmailGroupUrl(id)), {
       method: 'DELETE',
     });
   }
 
   async setDefaultEmailGroup(id: number): Promise<ApiResponse<EmailGroup>> {
-    return this.request<EmailGroup>(`/groups/${id}/default`, {
+    return this.request<EmailGroup>(this.generatedEndpoint(getSetDefaultEmailGroupUrl(id)), {
       method: 'PUT',
     });
   }
 
   async reorderEmailGroups(groupIds: number[]): Promise<ApiResponse<EmailGroup[]>> {
-    return this.request<EmailGroup[]>('/groups/reorder', {
+    return this.request<EmailGroup[]>(this.generatedEndpoint(getReorderEmailGroupsUrl()), {
       method: 'PUT',
       body: JSON.stringify({ group_ids: groupIds }),
     });
@@ -291,19 +359,17 @@ class ApiClient {
   async getGmailOAuthUrl(
     callbackUrl?: string
   ): Promise<ApiResponse<{ auth_url: string; state: string }>> {
-    const url = callbackUrl
-      ? `/oauth/gmail?callback_url=${encodeURIComponent(callbackUrl)}`
-      : '/oauth/gmail';
-    return this.request(url);
+    return this.request(
+      this.generatedEndpoint(getInitGmailOAuthUrl({ callback_url: callbackUrl }))
+    );
   }
 
   async getOutlookOAuthUrl(
     callbackUrl?: string
   ): Promise<ApiResponse<{ auth_url: string; state: string }>> {
-    const url = callbackUrl
-      ? `/oauth/outlook?callback_url=${encodeURIComponent(callbackUrl)}`
-      : '/oauth/outlook';
-    return this.request(url);
+    return this.request(
+      this.generatedEndpoint(getInitOutlookOAuthUrl({ callback_url: callbackUrl }))
+    );
   }
 
   // 通过后端API处理OAuth2回调（后端会调用外部OAuth服务器）
@@ -322,7 +388,9 @@ class ApiClient {
   > {
     // 调用后端的OAuth回调处理端点
     return this.request(
-      `/oauth/${provider}/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`,
+      this.generatedEndpoint(
+        getHandleOAuthCallbackUrl(provider as 'gmail' | 'outlook', { code, state })
+      ),
       {
         method: 'GET',
       }
@@ -340,7 +408,7 @@ class ApiClient {
     client_id: string; // 必需，用于token刷新
     group_id?: number;
   }): Promise<ApiResponse<EmailAccount>> {
-    return this.request<EmailAccount>('/oauth/create-account', {
+    return this.request<EmailAccount>(this.generatedEndpoint(getCreateOAuthAccountUrl()), {
       method: 'POST',
       body: JSON.stringify(account),
     });
@@ -358,7 +426,7 @@ class ApiClient {
     token_url?: string;
     group_id?: number;
   }): Promise<ApiResponse<EmailAccount>> {
-    return this.request<EmailAccount>('/oauth/manual-config', {
+    return this.request<EmailAccount>(this.generatedEndpoint(getCreateManualOAuthAccountUrl()), {
       method: 'POST',
       body: JSON.stringify(account),
     });
@@ -378,7 +446,7 @@ class ApiClient {
     smtp_security?: string;
     group_id?: number;
   }): Promise<ApiResponse<EmailAccount>> {
-    return this.request<EmailAccount>('/accounts/custom', {
+    return this.request<EmailAccount>(this.generatedEndpoint(getCreateCustomEmailAccountUrl()), {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -397,17 +465,7 @@ class ApiClient {
     sort_by?: string;
     sort_order?: string;
   }): Promise<ApiResponse<{ emails: Email[]; total: number; page: number; page_size: number }>> {
-    const searchParams = new URLSearchParams();
-    if (params) {
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined) {
-          searchParams.append(key, value.toString());
-        }
-      });
-    }
-
-    const query = searchParams.toString();
-    return this.request(`/emails${query ? `?${query}` : ''}`);
+    return this.request(this.generatedEndpoint(getListEmailsUrl(params as Parameters<typeof getListEmailsUrl>[0])));
   }
 
   async searchEmails(params: {
@@ -436,14 +494,7 @@ class ApiClient {
   > {
     console.log('🌐 [ApiClient] searchEmails() 被调用:', params);
 
-    const searchParams = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined) {
-        searchParams.append(key, value.toString());
-      }
-    });
-
-    const url = `/emails/search?${searchParams.toString()}`;
+    const url = this.generatedEndpoint(getSearchEmailsUrl(params));
     console.log('🌐 [ApiClient] 请求URL:', url);
 
     try {
@@ -469,12 +520,11 @@ class ApiClient {
   }
 
   async getFolders(accountId?: number): Promise<ApiResponse<Folder[]>> {
-    const params = accountId ? `?account_id=${accountId}` : '';
-    return this.request(`/folders${params}`);
+    return this.request(this.generatedEndpoint(getListFoldersUrl({ account_id: accountId })));
   }
 
   async getFolder(folderId: number): Promise<ApiResponse<Folder>> {
-    return this.request(`/folders/${folderId}`);
+    return this.request(this.generatedEndpoint(getGetFolderUrl(folderId)));
   }
 
   async getEmailStats(): Promise<ApiResponse<EmailStats>> {
@@ -486,20 +536,20 @@ class ApiClient {
     operation: string;
     target_folder_id?: number;
   }): Promise<ApiResponse> {
-    return this.request('/emails/batch', {
+    return this.request(this.generatedEndpoint(getBatchEmailOperationsUrl()), {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   async markAllAsRead(folderId: number): Promise<ApiResponse> {
-    return this.request(`/folders/${folderId}/mark-read`, {
+    return this.request(this.generatedEndpoint(getMarkFolderAsReadUrl(folderId)), {
       method: 'PUT',
     });
   }
 
   async moveEmail(emailId: number, targetFolderId: number): Promise<ApiResponse> {
-    return this.request(`/emails/${emailId}/move`, {
+    return this.request(this.generatedEndpoint(getMoveEmailUrl(emailId)), {
       method: 'PUT',
       body: JSON.stringify({ target_folder_id: targetFolderId }),
     });
@@ -511,7 +561,7 @@ class ApiClient {
     display_name?: string;
     parent_id?: number;
   }): Promise<ApiResponse<Folder>> {
-    return this.request('/folders', {
+    return this.request(this.generatedEndpoint(getCreateFolderUrl()), {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -524,77 +574,80 @@ class ApiClient {
       display_name?: string;
     }
   ): Promise<ApiResponse<Folder>> {
-    return this.request(`/folders/${folderId}`, {
+    return this.request(this.generatedEndpoint(getUpdateFolderUrl(folderId)), {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   async deleteFolder(folderId: number): Promise<ApiResponse> {
-    return this.request(`/folders/${folderId}`, {
+    return this.request(this.generatedEndpoint(getDeleteFolderUrl(folderId)), {
       method: 'DELETE',
     });
   }
 
   async markFolderAsRead(folderId: number): Promise<ApiResponse> {
-    return this.request(`/folders/${folderId}/mark-read`, {
+    return this.request(this.generatedEndpoint(getMarkFolderAsReadUrl(folderId)), {
       method: 'PUT',
     });
   }
 
   async syncFolder(folderId: number): Promise<ApiResponse> {
-    return this.request(`/folders/${folderId}/sync`, {
+    return this.request(this.generatedEndpoint(getSyncFolderUrl(folderId)), {
       method: 'PUT',
     });
   }
 
   async syncAccount(accountId: number): Promise<ApiResponse> {
-    return this.request(`/accounts/${accountId}/sync`, {
+    return this.request(this.generatedEndpoint(getSyncEmailAccountUrl(accountId)), {
       method: 'POST',
     });
   }
 
   async getEmailDetail(emailId: number): Promise<ApiResponse<Email>> {
-    return this.request(`/emails/${emailId}`);
+    return this.request(this.generatedEndpoint(getGetEmailUrl(emailId)));
   }
 
   async markEmailAsRead(emailId: number): Promise<ApiResponse> {
-    return this.request(`/emails/${emailId}/read`, {
+    return this.request(this.generatedEndpoint(getMarkEmailAsReadUrl(emailId)), {
       method: 'PUT',
     });
   }
 
   async markEmailAsUnread(emailId: number): Promise<ApiResponse> {
-    return this.request(`/emails/${emailId}/unread`, {
+    return this.request(this.generatedEndpoint(getMarkEmailAsUnreadUrl(emailId)), {
       method: 'PUT',
     });
   }
 
   async toggleEmailStar(emailId: number): Promise<ApiResponse> {
-    return this.request(`/emails/${emailId}/star`, {
+    return this.request(this.generatedEndpoint(getToggleEmailStarUrl(emailId)), {
       method: 'PUT',
     });
   }
 
   async deleteEmail(emailId: number): Promise<ApiResponse> {
-    return this.request(`/emails/${emailId}`, {
+    return this.request(this.generatedEndpoint(getDeleteEmailUrl(emailId)), {
       method: 'DELETE',
     });
   }
 
   async toggleEmailImportant(emailId: number): Promise<ApiResponse> {
-    return this.request(`/emails/${emailId}`, {
+    return this.request(this.generatedEndpoint(getUpdateEmailUrl(emailId)), {
       method: 'PATCH',
       body: JSON.stringify({ is_important: true }), // 后端会自动切换状态
     });
   }
 
   async downloadAttachment(attachmentId: number): Promise<Blob> {
-    const response = await fetch(`${API_BASE_URL}/attachments/${attachmentId}/download`, {
-      headers: {
-        Authorization: `Bearer ${this.getAuthToken()}`,
-      },
-    });
+    const response = await fetch(
+      `${API_BASE_URL}${this.generatedEndpoint(getDownloadAttachmentUrl(attachmentId))}`,
+      {
+        headers: {
+          Authorization: `Bearer ${this.getAuthToken()}`,
+        },
+      }
+    );
 
     if (!response.ok) {
       throw new Error('Failed to download attachment');
@@ -604,7 +657,7 @@ class ApiClient {
   }
 
   async getEmail(id: number): Promise<ApiResponse<Email>> {
-    return this.request(`/emails/${id}`);
+    return this.request(this.generatedEndpoint(getGetEmailUrl(id)));
   }
 
   async sendEmail(email: {
@@ -622,9 +675,29 @@ class ApiClient {
     request_read_receipt?: boolean;
     request_delivery_receipt?: boolean;
   }): Promise<ApiResponse> {
-    return this.request('/emails/send', {
+    return this.request(this.generatedEndpoint(getSendEmailUrl()), {
       method: 'POST',
       body: JSON.stringify(email),
+    });
+  }
+
+  async sendBulkEmails(payload: {
+    account_id: number;
+    emails: Array<Record<string, unknown>>;
+  }): Promise<ApiResponse> {
+    return this.request(this.generatedEndpoint(getSendBulkEmailsUrl()), {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async getSendStatus(sendId: string): Promise<ApiResponse> {
+    return this.request(this.generatedEndpoint(getGetSendStatusUrl(sendId)));
+  }
+
+  async resendEmail(sendId: string): Promise<ApiResponse> {
+    return this.request(this.generatedEndpoint(getResendEmailUrl(sendId)), {
+      method: 'POST',
     });
   }
 
@@ -646,7 +719,7 @@ class ApiClient {
       request_delivery_receipt?: boolean;
     }
   ): Promise<ApiResponse> {
-    return this.request(`/emails/${originalEmailId}/reply`, {
+    return this.request(this.generatedEndpoint(getReplyEmailUrl(originalEmailId)), {
       method: 'POST',
       body: JSON.stringify(email),
     });
@@ -670,7 +743,7 @@ class ApiClient {
       request_delivery_receipt?: boolean;
     }
   ): Promise<ApiResponse> {
-    return this.request(`/emails/${originalEmailId}/reply-all`, {
+    return this.request(this.generatedEndpoint(getReplyAllEmailUrl(originalEmailId)), {
       method: 'POST',
       body: JSON.stringify(email),
     });
@@ -693,14 +766,14 @@ class ApiClient {
       request_delivery_receipt?: boolean;
     }
   ): Promise<ApiResponse> {
-    return this.request(`/emails/${originalEmailId}/forward`, {
+    return this.request(this.generatedEndpoint(getForwardEmailUrl(originalEmailId)), {
       method: 'POST',
       body: JSON.stringify(email),
     });
   }
 
   async archiveEmail(emailId: number): Promise<ApiResponse> {
-    return this.request(`/emails/${emailId}/archive`, {
+    return this.request(this.generatedEndpoint(getArchiveEmailUrl(emailId)), {
       method: 'PUT',
     });
   }
@@ -715,7 +788,7 @@ class ApiClient {
     htmlContent?: string;
     attachments?: unknown[];
   }): Promise<ApiResponse> {
-    return this.request('/emails/draft', {
+    return this.request(this.generatedEndpoint(getSaveDraftUrl()), {
       method: 'POST',
       body: JSON.stringify({
         account_id: draft.accountId,
@@ -727,6 +800,60 @@ class ApiClient {
         html_body: draft.htmlContent,
       }),
     });
+  }
+
+  async getDraft(id: number): Promise<ApiResponse> {
+    return this.request(this.generatedEndpoint(getGetDraftUrl(id)));
+  }
+
+  async updateDraft(id: number, draft: Record<string, unknown>): Promise<ApiResponse> {
+    return this.request(this.generatedEndpoint(getUpdateDraftUrl(id)), {
+      method: 'PUT',
+      body: JSON.stringify(draft),
+    });
+  }
+
+  async deleteDraft(id: number): Promise<ApiResponse> {
+    return this.request(this.generatedEndpoint(getDeleteDraftUrl(id)), {
+      method: 'DELETE',
+    });
+  }
+
+  async listDrafts(params?: { page?: number; page_size?: number }): Promise<ApiResponse> {
+    return this.request(this.generatedEndpoint(getListDraftsUrl(params)));
+  }
+
+  async createTemplate(template: Record<string, unknown>): Promise<ApiResponse> {
+    return this.request(this.generatedEndpoint(getCreateTemplateUrl()), {
+      method: 'POST',
+      body: JSON.stringify(template),
+    });
+  }
+
+  async getTemplate(id: number): Promise<ApiResponse> {
+    return this.request(this.generatedEndpoint(getGetTemplateUrl(id)));
+  }
+
+  async updateTemplate(id: number, template: Record<string, unknown>): Promise<ApiResponse> {
+    return this.request(this.generatedEndpoint(getUpdateTemplateUrl(id)), {
+      method: 'PUT',
+      body: JSON.stringify(template),
+    });
+  }
+
+  async deleteTemplate(id: number): Promise<ApiResponse> {
+    return this.request(this.generatedEndpoint(getDeleteTemplateUrl(id)), {
+      method: 'DELETE',
+    });
+  }
+
+  async listTemplates(params?: {
+    page?: number;
+    page_size?: number;
+    category?: string;
+    search?: string;
+  }): Promise<ApiResponse> {
+    return this.request(this.generatedEndpoint(getListTemplatesUrl(params)));
   }
 }
 
