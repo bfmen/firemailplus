@@ -57,7 +57,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 | T20 | done | Stabilize single-email read-state remote sync errors and frontend rewrite behavior. | Remote/provider failures return typed errors, not opaque 500; direct backend and frontend rewrite behavior match. |
 | T21 | done | Fix dedup stats/report fallback and schedule defaults/validation. | Stats/report no longer 500 without enhanced dedup; empty schedule uses defaults; invalid schedule returns 400. |
 | T22 | done | Make admin soft-delete cleanup usable with an empty body. | Empty body uses default retention days; OpenAPI request body is optional; focused tests pass. |
-| T23 | pending | Harden SSE heartbeat/reconnect behavior and redact frontend token logs. | 120s browser smoke receives heartbeat; console/HAR/log scans contain no token/JWT leakage. |
+| T23 | done | Harden SSE heartbeat/reconnect behavior and redact frontend token logs. | 120s browser smoke receives heartbeat; console/HAR/log scans contain no token/JWT leakage. |
 | T24 | pending | Fix search page folder loading and query/empty-state behavior. | HAR has no folder request without `account_id`; search URL and empty state reflect current query. |
 | T25 | pending | Improve Docker build resilience around external base images. | Build supports mirror/base-image overrides and retry; Docker or documented fallback validation passes. |
 | T26 | pending | Add reproducible local production E2E harness and reporting. | Backend curl and frontend jshook flows produce redacted artifacts under `/tmp/firemailplus-e2e-artifacts`. |
@@ -744,6 +744,49 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
   - `make check-api-generated`: passed; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
   - `git diff --check`: passed.
 
+### T23 - SSE Heartbeat/Reconnect And Token Redaction
+
+- ID: T23
+- Status: done
+- Goal: Harden frontend/backend SSE behavior so heartbeat timeouts do not leave stale EventSource connections behind and credential-bearing query tokens are never logged by the client.
+- Code To Inspect: `frontend/src/lib/sse-client.ts`, `frontend/src/hooks/use-sse.ts`, `frontend/src/components/mailbox/mailbox-layout.tsx`, `frontend/src/components/mailbox/search-results-page.tsx`, `frontend/src/components/mobile/mobile-layout.tsx`, `backend/internal/handlers/sse.go`, `backend/internal/sse`.
+- Allowed Changes: SSE client/hook/bridge code, backend SSE response headers/tests, focused static or smoke checks, task file.
+- Implementation Notes:
+  - Initial finding: `frontend/src/lib/sse-client.ts` logs the complete EventSource URL containing `token=${encodeURIComponent(...)}` during connect and error handling.
+  - Initial finding: heartbeat timeout calls `handleError()` and `scheduleReconnect()` but does not explicitly close the current EventSource before scheduling a replacement connection.
+  - Initial finding: `scheduleReconnect()` does not clear an already scheduled reconnect timer before assigning a new one.
+  - Initial finding: backend SSE headers use `Cache-Control: no-cache` but do not advertise `no-transform` or `X-Accel-Buffering: no`, which can make proxy buffering harder to diagnose in production E2E.
+  - Initial finding: `MailboxSSEBridge` is mounted by desktop mailbox layout, search results page, and mobile layout. The route trees need duplicate-connection behavior kept stable without broad routing changes in this task.
+  - Added sanitized SSE client connection metadata logging via `getSafeConnectionInfo()` so console output records endpoint/client/token presence without the raw query token.
+  - Heartbeat timeout now closes and nulls the active EventSource before reporting the timeout and scheduling reconnect.
+  - Reconnect scheduling now clears any existing reconnect/heartbeat timers and closes a stale EventSource before scheduling a replacement connection.
+  - Frontend heartbeat timeout increased from 60s to 90s to tolerate delayed 30s backend heartbeat frames without masking actual broken streams.
+  - Backend SSE headers now include `Cache-Control: no-cache, no-transform` and `X-Accel-Buffering: no` in both handler and connection layers.
+  - Added a focused frontend static guard at `frontend/scripts/check-sse-redaction.mjs` and backend SSE header tests.
+  - Full live 120s browser smoke remains part of the T27 clean-instance E2E run; T23 completed the code-level hardening and leakage static gate needed before that run.
+- Self Review Checklist:
+  - [x] Frontend logs do not include raw token or credential-bearing URL.
+  - [x] Heartbeat timeout closes the active EventSource before reconnecting.
+  - [x] Reconnect scheduling avoids duplicate timers and stale streams.
+  - [x] Backend SSE headers are proxy-buffering resilient.
+  - [x] Focused SSE redaction/header checks and full gates pass.
+- Acceptance Commands:
+  - `cd frontend && node scripts/check-sse-redaction.mjs`
+  - `cd backend && go test ./internal/handlers -run 'TestSSE'`
+  - `cd backend && go test ./internal/sse -run 'TestSSEHandler|TestSSEConnection'`
+  - `cd backend && go test ./...`
+  - `cd frontend && pnpm type-check`
+  - `make check-api-generated`
+  - `git diff --check`
+- Exit Result: passed on 2026-04-30.
+  - `cd frontend && node scripts/check-sse-redaction.mjs`: passed.
+  - `cd backend && go test ./internal/handlers -run 'TestSSE'`: passed.
+  - `cd backend && go test ./internal/sse -run 'TestSSEHandler|TestSSEConnection'`: passed after E020.
+  - `cd backend && go test ./...`: passed after E020.
+  - `cd frontend && pnpm type-check`: passed.
+  - `make check-api-generated`: passed; Redocly still reports the accepted 9 ambiguous v1 path warnings recorded in F011.
+  - `git diff --check`: passed.
+
 ## Findings
 
 - F001: Phase 1 stable route boundary should start from real registrations in `backend/cmd/firemail/main.go`, plus attachment routes registered through `AttachmentHandler.RegisterRoutes(api)`.
@@ -766,6 +809,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - F018: Single-message read/unread remains strong-consistency by design, but remote IMAP failures need stable API semantics. T20 preserves no-local-mutation-on-failure and exposes typed 409/502 JSON errors so Next rewrite callers can surface the backend reason instead of an opaque 500.
 - F019: Dedup stats/report should not be gated on enhanced dedup being enabled. T21 adds a DB-derived fallback from `emails` for total checked and duplicate message groups, keeping public report/stats endpoints useful in default deployments.
 - F020: Soft-delete cleanup has two valid caller modes: explicit `retention_days` for admin control and empty body for the existing 30-day operational default. T22 aligns handler and OpenAPI with both modes.
+- F021: SSE query-token compatibility still requires a credential-bearing browser request URL, but frontend code must never echo that URL or token into console output. T23 separates the real EventSource URL builder from sanitized logging metadata and closes stale EventSource objects before managed reconnects.
 
 ## Errors Encountered
 
@@ -775,6 +819,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - E017: T20 initial focused format/test command was launched from `backend/` while still using repository-root paths for service and handler files, so `gofmt` reported `lstat backend/internal/services/email_service.go: no such file or directory`. Different strategy applied: rerun with `internal/...` paths relative to `backend/`.
 - E018: T21 initial fallback report test saw zero fallback stats because enhanced dedup was enabled in the global environment and bypassed the fallback path. Different strategy applied: explicitly disable enhanced dedup inside that focused test and restore the prior value with `t.Cleanup`.
 - E019: T21 first OpenAPI schema patch matched the wrong `requestBody` blocks, causing generated clients to type `updateEmailAccount` and then `updateEmail` with the schedule schema. Different strategy applied: patch with operation-specific context and inspect generated operation signatures before rerunning full gates.
+- E020: T23 first full `cd backend && go test ./...` failed because the older `internal/sse` handler test still expected `Cache-Control: no-cache` after the new proxy-safe SSE header became `no-cache, no-transform`. Different strategy applied: update the legacy SSE test to assert the new stable header set, including `X-Accel-Buffering: no`, before rerunning full gates.
 - E001: Initial Redocly lint failed because `SuccessResponse.data` used `nullable` without a sibling `type`, and `/health` lacked an explicit security declaration. Different strategy applied: define `data` as a nullable object and add `security: []` to the public health operation.
 - E002: Initial Orval config generated schema files under a directory named `firemail.schemas.ts`, causing poor `from './.'` imports. Different strategy applied: use `frontend/src/api/generated/model` as the schema directory.
 - E003: `pnpm type-check` failed because `orval.config.ts` used unsupported `output.prettier`. Different strategy applied: remove that field and rely on Orval's generated output formatting.
@@ -812,6 +857,7 @@ This is the single canonical execution file for the FireMailPlus OpenAPI migrati
 - T20 passed on 2026-04-30: single-email read/unread remote failures now return typed 409/502 JSON errors with no local state mutation on failure; OpenAPI/generated SDK/backend adapter and frontend type-check gates pass.
 - T21 passed on 2026-04-30: dedup report/stats fallback succeeds without enhanced dedup, empty schedule body uses defaults, invalid schedules return 400, typed OpenAPI schedule schema is generated, and full gates pass.
 - T22 passed on 2026-04-30: admin soft-delete cleanup accepts empty body with 30-day default, rejects invalid retention values with 400, updates OpenAPI to optional requestBody, and full gates pass.
+- T23 passed on 2026-04-30: SSE frontend logs are statically guarded against token/full-URL output, heartbeat timeout and reconnect paths close stale EventSource instances, proxy-safe SSE headers are tested, and full backend/frontend/generated/diff gates pass.
 
 ## Deferred Decisions
 

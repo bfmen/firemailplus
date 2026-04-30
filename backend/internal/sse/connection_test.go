@@ -124,6 +124,18 @@ func TestSSEConnection(t *testing.T) {
 		assert.WithinDuration(t, time.Now(), conn.GetConnectedAt(), time.Second)
 	})
 
+	t.Run("连接头禁用代理缓冲", func(t *testing.T) {
+		w := httptest.NewRecorder()
+
+		_, err := NewSSEConnection("test", 123, w, context.Background().Done())
+		require.NoError(t, err)
+
+		assert.Equal(t, "text/event-stream", w.Header().Get("Content-Type"))
+		assert.Equal(t, "no-cache, no-transform", w.Header().Get("Cache-Control"))
+		assert.Equal(t, "keep-alive", w.Header().Get("Connection"))
+		assert.Equal(t, "no", w.Header().Get("X-Accel-Buffering"))
+	})
+
 	t.Run("发送数据成功", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		conn, err := NewSSEConnection("test", 123, w, context.Background().Done())

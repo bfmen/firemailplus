@@ -69,12 +69,12 @@ export class FireMailSSEClient {
 
     this.setState('connecting');
 
-    const url = `${this.config.baseUrl}/sse/events?client_id=${this.config.clientId}&token=${encodeURIComponent(this.config.token)}`;
+    const url = this.buildEventSourceUrl();
 
     try {
       this.eventSource = new EventSource(url);
       this.setupEventListeners();
-      console.log('🔗 [SSEClient] 正在连接到:', url);
+      console.log('🔗 [SSEClient] 正在连接到:', this.getSafeConnectionInfo());
     } catch (error) {
       this.handleError(error as Error);
       this.scheduleReconnect();
@@ -186,6 +186,33 @@ export class FireMailSSEClient {
     });
   }
 
+  private buildEventSourceUrl(): string {
+    const params = new URLSearchParams({
+      client_id: this.config.clientId,
+      token: this.config.token,
+    });
+
+    return `${this.config.baseUrl}/sse/events?${params.toString()}`;
+  }
+
+  private getSafeConnectionInfo() {
+    return {
+      endpoint: `${this.config.baseUrl}/sse/events`,
+      clientId: this.config.clientId,
+      tokenPresent: Boolean(this.config.token),
+    };
+  }
+
+  private closeEventSourceForReconnect(reason: string): void {
+    if (!this.eventSource) {
+      return;
+    }
+
+    this.eventSource.close();
+    this.eventSource = null;
+    console.log('🔌 [SSEClient] 已关闭旧连接以准备重连:', reason);
+  }
+
   private handleOpen(): void {
     console.log('✅ [SSEClient] 连接已建立');
     this.setState('connected');
@@ -214,7 +241,6 @@ export class FireMailSSEClient {
 
   private handleEventSourceError(event: Event): void {
     const readyState = this.eventSource?.readyState ?? 'unknown';
-    const url = `${this.config.baseUrl}/sse/events?client_id=${this.config.clientId}&token=${encodeURIComponent(this.config.token)}`;
 
     let errorMessage = 'EventSource 连接错误';
     switch (readyState) {
@@ -233,11 +259,12 @@ export class FireMailSSEClient {
 
     console.error('❌ [SSEClient] EventSource 错误:', errorMessage, {
       readyState,
-      url,
+      connection: this.getSafeConnectionInfo(),
       eventType: event?.type || 'unknown',
     });
 
     if (readyState === EventSource.CLOSED) {
+      this.closeEventSourceForReconnect('eventsource-closed');
       this.setState('error');
       this.scheduleReconnect();
     }
@@ -314,6 +341,16 @@ export class FireMailSSEClient {
       return;
     }
 
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.heartbeatTimer) {
+      clearTimeout(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    this.closeEventSourceForReconnect('schedule-reconnect');
+
     this.reconnectAttempts++;
     this.stats.reconnectAttempts = this.reconnectAttempts;
 
@@ -328,6 +365,7 @@ export class FireMailSSEClient {
 
     this.setState('reconnecting');
     this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       this.connect();
     }, delay);
   }
@@ -343,6 +381,7 @@ export class FireMailSSEClient {
 
     this.heartbeatTimer = setTimeout(() => {
       console.warn('⚠️ [SSEClient] 心跳超时，可能连接已断开');
+      this.closeEventSourceForReconnect('heartbeat-timeout');
       this.handleError(new Error('心跳超时'));
       this.scheduleReconnect();
     }, this.config.heartbeatTimeout);

@@ -117,7 +117,7 @@ export function useSSE(options: UseSSEOptions = {}): UseSSEReturn {
       autoReconnect: true,
       reconnectInterval: 3000,
       maxReconnectAttempts: 10,
-      heartbeatTimeout: 60000,
+      heartbeatTimeout: 90000,
     });
 
     // 监听状态变更
